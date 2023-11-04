@@ -1,0 +1,222 @@
+@font-face {
+    font-family: "Zen Antique";
+    src: url('/fonts/ZenAntique-Regular.ttf') format("truetype");
+}
+
+.state-img {
+    cursor: pointer;
+    object-fit: none;
+    object-position: top;
+}
+.state-img:hover:not(:disabled) {
+    object-position: bottom;
+}
+
+.state-bg {
+    background-position: top;
+}
+.state-bg:hover:not(:disabled) {
+    background-position: bottom;
+}
+
+.font-main {
+    font-family: 'Microsoft GothicNeo', serif;
+    text-shadow: 2px 2px 5px black;
+}
+
+.jp .font-main {
+    font-family: 'MS Gothic';
+}
+
+.font-old {
+    font-family: 'Zen Antique', serif;
+    text-shadow: 2px 2px 5px black;
+}
+
+.info {
+    color: lightblue;
+}
+.warning {
+    color: #f4de22;
+}
+.error {
+    color: #eb3535;
+}
+
+.arrow-down {
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+
+    border-top: 8px solid #aaa;
+}
+
+.arrow-up {
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+
+    border-bottom: 8px solid #aaa;
+}
+
+.messages-header {
+    background-color: transparent;
+    background: url('/src/background.jpg');
+    background-attachment: fixed;
+    width: max-content;
+    padding-right: 8px;
+    margin-bottom: -20px;
+}
+
+.locale-picker > *:last-child {
+    border-bottom-right-radius: 0.25rem;
+    border-bottom-left-radius: 0.25rem;
+}
+
+.scrollbar::-webkit-scrollbar {
+    cursor: pointer;
+    width: 6px;
+}
+.scrollbar::-webkit-scrollbar-track {
+    background-color: #00000066;
+    border-radius: 5px;
+    outline: 2px solid #00000066;
+}
+.scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 5px;
+    background-color: #535353;
+}
+
+.link-item .link-icon {
+    background-color: #00000099;
+}
+.link-item:hover .link-icon {
+    background-color: #1b1b1b99;
+}
+.link-item .link-icon img {
+    filter: brightness(0) saturate(100%) invert(95%) sepia(68%) saturate(5506%) hue-rotate(178deg) brightness(78%) contrast(80%);
+}
+.link-item:hover .link-icon img {
+    filter: brightness(0) saturate(100%) invert(96%) sepia(0%) saturate(670%) hue-rotate(262deg) brightness(88%) contrast(81%);
+}
+
+.news-important {
+    color: #f4c833;
+}
+.news-important.news-button:hover {
+    color: #F8DD81;
+}
+
+.news-default {
+    color: #d1c0a5;
+}
+.news-default.news-button:hover {
+    color: #EFDDC2;
+}
+
+.input-label {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.box-text {
+    background-color: #00000099;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    outline: none;
+    outline-offset: 2px;
+    padding: 0.25rem 0.5rem;
+}
+*:disabled,
+.box-disabled {
+    cursor: default;
+    filter: brightness(0.5);
+    pointer-events: none;
+}
+.box-lg {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    padding: 0.25rem 1rem;
+}
+.box-btn {
+    cursor: pointer;
+}
+.box-btn:hover {
+    background-color: #1b1b1b99;
+}
+
+.character {
+    position: relative;
+    animation-duration: 300ms;
+}
+.character-1 {
+    filter: brightness(0.3);
+}
+.character-2 {
+    filter: brightness(0.15);
+}
+@keyframes character {
+    0% { top: 20px }
+    30% { top: 8px }
+    60% { top: 1px }
+    80% { top: 3px }
+    100% { top: 0 }
+}
+.character.character-animation {
+    animation-name: character;
+}
+@keyframes character-reverse {
+    0% { bottom: 20px }
+    30% { bottom: 8px }
+    60% { bottom: 1px }
+    80% { bottom: 3px }
+    100% { bottom: 0 }
+}
+.character.character-animation-reverse {
+    animation-name: character-reverse;
+}
+@keyframes character-1 {
+    0% { top: 10px }
+    30% { top: 4px }
+    60% { top: 1px }
+    80% { top: 2px }
+    100% { top: 0 }
+}
+.character-1.character-animation {
+    animation-name: character-1;
+}
+@keyframes character-1-reverse {
+    0% { bottom: 10px }
+    30% { bottom: 4px }
+    60% { bottom: 1px }
+    80% { bottom: 2px }
+    100% { bottom: 0 }
+}
+.character-1.character-animation-reverse {
+    animation-name: character-1-reverse;
+}
+@keyframes character-2 {
+    0% { top: 5px }
+    30% { top: 2px }
+    60% { top: 0px }
+    80% { top: 1px }
+    100% { top: 0 }
+}
+.character-2.character-animation {
+    animation-name: character-2;
+}
+@keyframes character-2-reverse {
+    0% { bottom: 20px }
+    30% { bottom: 2px }
+    60% { bottom: 0px }
+    80% { bottom: 1px }
+    100% { bottom: 0 }
+}
+.character-2.character-animation-reverse {
+    animation-name: character-2-reverse;
+}

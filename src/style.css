@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+:root {
+  --theme-background: #ffffff0f;
+  --theme-background-hover: #ffffff17;
+  --theme-background-focus: #bbbbbb0f;
+  --theme-blue-light: #A6D8FF;
+}
+
+
+@layer components {
+  .btn-primary,
+  .select-primary,
+  .input-primary {
+    background-color: var(--theme-background);
+  }
+  .btn,
+  .select,
+  .input,
+  .label-text,
+  .menu li:not(.disabled) a {
+    @apply border-transparent;
+    @apply rounded;
+    @apply text-white;
+    font-weight: normal;
+    text-transform: none;
+  }
+  .btn:hover,
+  .select:hover,
+  .input:hover,
+  .menu li:not(.disabled) a:hover {
+    @apply border-transparent;
+    background-color: var(--theme-background-hover);
+  }
+  .menu li.active a {
+    border-left: 3px solid var(--theme-blue-light) !important;
+    background-color: var(--theme-background-hover);
+  }
+  .btn:active,
+  .btn-ghost:active,
+  .select:active,
+  .input:active,
+  .menu li:not(.disabled) a:active {
+    color: #ffffffc0;
+    background-color: var(--theme-background-focus);
+  }
+  .disabled,
+  .disabled a,
+  .disabled:focus a,
+  .disabled:active a {
+    color: #ffffff70 !important;
+    background-color: transparent !important;
+  }
+  .dropdown-origin .dropdown-content {
+    margin-top: -40px;
+    margin-left: -10px;
+  }
+  .dropdown-glass .dropdown-content {
+    background-color: #77777710;
+    backdrop-filter: blur(75px);
+  }
+  .dropdown-content {
+    @apply p-1;
+  }
+  .menu li:not(.disabled) a {
+    @apply m-0.5;
+  }
+  .menu hr {
+    @apply my-1;
+    border-color: var(--theme-background-hover);
+  }
+
+  .swap:not(.swap-active) .swap-on,
+  .swap.swap-active .swap-off {
+    @apply invisible;
+  }
+
+  .input:focus,
+  .select:focus {
+    outline: none;
+  }
+
+  .input,
+  .input:hover {
+    @apply placeholder-white/40;
+    border-bottom: 1px solid #999;
+  }
+  .input:focus {
+    border-bottom: 2px solid #2298D7;
+    background-color: #44444470;
+  }
+  .label {
+    gap: 8px;
+    justify-content: flex-start;
+  }
+  .checkbox {
+    @apply rounded;
+  }
+  .checkbox:not(:checked) {
+    border-color: #ffffffa0;
+  }
+  .btn-group .btn:first-child:not(:last-child) {
+    @apply rounded-l;
+  }
+  .btn-group .btn:last-child:not(:first-child) {
+    @apply rounded-r;
+  }
+}
+
+.srcollbar {
+  scroll-margin-left: 10px;
+}
+
+.scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.scrollbar::-webkit-scrollbar-track {
+  background-color: #00000066;
+  border-radius: 5px;
+  outline: 2px solid #00000066;
+}
+
+.scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 5px;
+  background-color: #535353;
+}
+
+option,
+optgroup {
+  background-color: #222;
+}
+
+.link-image {
+  filter: brightness(0) saturate(100%) invert(67%) sepia(84%) saturate(214%) hue-rotate(179deg) brightness(103%) contrast(105%);
+}

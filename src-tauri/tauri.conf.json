@@ -1,0 +1,37 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dev",
+    "devPath": "http://localhost:5173",
+    "distDir": "../dist"
+  },
+  "package": {
+    "productName": "mhf-launcher",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "bundle": {
+      "identifier": "mhf-launcher"
+    },
+    "allowlist": {
+      "all": true
+    },
+    "security": {
+      "csp": null
+    },
+    "updater": {
+      "active": false
+    },
+    "windows": [
+      {
+        "title": "MHF Launcher",
+        "fullscreen": false,
+        "resizable": false,
+        "visible": false,
+        "theme": "Dark",
+        "width": 1124,
+        "height": 600
+      }
+    ]
+  }
+}
