@@ -43,3 +43,9 @@ For now, only servers using the latest version of [this fork](https://github.com
 - Language translation help is always appreaciated!
   - If you want help with translation to an already supported language, just edit corresponding the `locale/<id>.ftl` file.
   - If you want to translate the laucher to a new language, duplicate `locale/en.ftl` and rename it to the correct language code. It's Ok to not fully translate the file, the launcher already falls back to english when it can't find a translation.
+
+## Build
+
+The project uses a Tauri + Vite combo. To build, you'll need to have `rust` and `node` installed, and then install the `tauri` CLI through either `cargo` or `npm`.
+
+If you install through `cargo`, you can run `cargo tauri dev` to open a hot-reload server or `cargo tauri build` to build the launcher for deployment.
