@@ -4,7 +4,8 @@ use crate::Endpoint;
 pub const CLASSIC_STYLE: u32 = 0;
 pub const MODERN_STYLE: u32 = 1;
 
-pub const DEFAULT_SERVERLIST_URL: &str = "http://127.0.0.1:8000/serverlist.json";
+pub const DEFAULT_SERVERLIST_URL: &str =
+    "https://raw.githubusercontent.com/rockisch/mhf-launcher/master/serverlist.json";
 
 pub fn get_fixed_endpoints() -> Vec<Endpoint> {
     vec![Endpoint {

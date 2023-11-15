@@ -24,7 +24,7 @@ A custom Monster Hunter Frontier launcher.
 
 - More styles! (PS4 Launcher, non-ZZ themes)
 - Game updater/patcher
-- More serve-related 'commands' that are not supported in-game: Renaming character, save uploading, etc
+- More server-related 'commands' that are not supported in-game: Renaming character, save uploading, etc
   - These will _all_ be opt-in by the server host
 
 ## Usage
@@ -36,3 +36,10 @@ Notice that the launcher requires your `mhfo-hd.dll` to be decrypted. Most commu
 ## Supported Servers
 
 For now, only servers using the latest version of [this fork](https://github.com/rockisch/Erupe-1) will work with the new launcher.
+
+## Contributing
+
+- If you feel there's a inconsistency with the original launcher or you want to improve upon the existing designs, feel free to open a PR or an issue.
+- Language translation help is always appreaciated!
+  - If you want help with translation to an already supported language, just edit corresponding the `locale/<id>.ftl` file.
+  - If you want to translate the laucher to a new language, duplicate `locale/en.ftl` and rename it to the correct language code. It's Ok to not fully translate the file, the launcher already falls back to english when it can't find a translation.

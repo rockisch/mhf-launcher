@@ -8,7 +8,8 @@ export const SETTINGS_PAGE = 2;
 export const DELETE_DIALOG = 0;
 export const SERVERS_DIALOG = 1;
 
-export const DEFAULT_SERVERLIST_URL = "http://127.0.0.1:8000/serverlist.json";
+export const DEFAULT_SERVERLIST_URL =
+  "https://raw.githubusercontent.com/rockisch/mhf-launcher/master/serverlist.json";
 
 export async function requestHandler(cb, error, loading) {
   if (loading) loading.value = true;
