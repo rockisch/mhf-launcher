@@ -1,7 +1,7 @@
 <script setup>
 import { open } from "@tauri-apps/api/dialog";
 
-import { CLASSIC_STYLE, MODERN_STYLE } from "../common";
+import { CLASSIC_STYLE, DEFAULT_SERVERLIST_URL, MODERN_STYLE } from "../common";
 import { effectiveFolder, storeMut } from "../store";
 
 async function onChooseFolder() {
@@ -58,15 +58,33 @@ async function onChooseFolder() {
     </div>
     <div>
       <h2 class="text-xl pb-1">
-        {{ $t("serverlist-url-label") }}
+        {{ $t("list-remote-servers-label") }}
       </h2>
-      <input
-        v-model.lazy.trim="storeMut.serverlistUrl"
-        class="box-text w-full"
-        type="url"
-        spellcheck="false"
-        :placeholder="DEFAULT_SERVERLIST_URL"
-      />
+      <label class="cursor-pointer flex gap-1">
+        <input
+          :checked="storeMut.serverlistUrl !== ''"
+          @change="
+            storeMut.serverlistUrl = $event.target.checked
+              ? DEFAULT_SERVERLIST_URL
+              : ''
+          "
+          type="checkbox"
+        />
+        <span class="label-text">
+          {{ $t("enable-button") }}
+        </span>
+      </label>
+      <template v-if="storeMut.serverlistUrl !== ''">
+        <h3 class="mt-1">
+          {{ $t("serverlist-url-label") }}
+        </h3>
+        <input
+          v-model.lazy.trim="storeMut.serverlistUrl"
+          class="box-text w-full"
+          type="url"
+          spellcheck="false"
+        />
+      </template>
     </div>
   </div>
 </template>

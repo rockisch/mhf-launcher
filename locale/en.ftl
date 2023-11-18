@@ -3,6 +3,8 @@ cancel-button = Cancel
 save-button = Save
 add-button = Add
 delete-button = Delete
+install-button = Install
+enable-button = Enable
 
 # Login
 login-button = Log In
@@ -39,6 +41,7 @@ classic-style = Classic Style
 modern-style = Modern Style
 game-folder-label = Game Folder
 current-folder-label = Current Folder
+list-remote-servers-label = List Remote Servers
 serverlist-url-label = Serverlist URL
 
 # Characters page
@@ -57,6 +60,17 @@ character-gender-male = Male
 weapon-label = Weapon
 last-online-label = Last Online
 start-game-label = START GAME
+
+# Patcher
+updating-label = Updating...
+patcher-updates-label = Server Updates
+patcher-updates-confirmation =
+    A new patch has been found that needs to be installed before you can play, would you like to install it?<br>
+    <span class="warning">If you play on multiple servers, it is recommended to configure separate installation folders for each server.</span>
+patcher-checking = Checking updates...
+patcher-percentage = [{ $percentage }%]Downloading files...
+patcher-progress = { $current } out of { $total } files downloaded
+patcher-patching = Finishing...
 
 # Weapons
 greatsword-label = Greatsword

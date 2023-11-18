@@ -1,15 +1,15 @@
 use core::fmt;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, path::PathBuf};
 
 use log::warn;
-use reqwest::RequestBuilder;
+use reqwest::{RequestBuilder, Response};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 
-use crate::Endpoint;
+use crate::endpoint::Endpoint;
 
 pub enum Error {
     Cancellation,
@@ -122,10 +122,16 @@ pub struct AuthResponse {
     pub user: UserData,
     pub characters: Vec<CharacterData>,
     pub mez_fez: Option<MezFesData>,
+    pub patch_server: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EmptyResponse {}
+
+pub struct PatcherResponse {
+    pub etag: String,
+    pub content: String,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -147,13 +153,41 @@ struct TokenRequest<'a> {
     token: &'a str,
 }
 
-pub struct Request<T: DeserializeOwned> {
+async fn send(request: RequestBuilder, cancel: CancellationToken) -> Result<Response, Error> {
+    let resp = select! {
+        _ = cancel.cancelled() => return Err(Error::Cancellation),
+        resp = request.send() => resp,
+    };
+    let resp = resp.map_err(|e| {
+        warn!("request connection failed: {}", e);
+        Error::Backend("Failed to connect to server".into())
+    })?;
+    let status = resp.status().as_u16();
+    if status >= 400 {
+        warn!("request status error: {}", status);
+        let is_text = resp
+            .headers()
+            .get("Content-Type")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.starts_with("text/plain"))
+            .unwrap_or(false);
+        let message = if is_text {
+            resp.text().await.unwrap_or("Server error".into())
+        } else {
+            "Server error".into()
+        };
+        return Err(Error::Server(status, message));
+    }
+    Ok(resp)
+}
+
+pub struct JsonRequest<T: DeserializeOwned> {
     request: RequestBuilder,
     cancel: CancellationToken,
     _phantom: PhantomData<T>,
 }
 
-impl<T: DeserializeOwned> Request<T> {
+impl<T: DeserializeOwned> JsonRequest<T> {
     fn new(request: RequestBuilder, cancel: CancellationToken) -> Self {
         Self {
             request,
@@ -163,31 +197,7 @@ impl<T: DeserializeOwned> Request<T> {
     }
 
     pub async fn send(self) -> Result<T, Error> {
-        let resp = select! {
-            _ = self.cancel.cancelled() => return Err(Error::Cancellation),
-            resp = self.request.send() => resp,
-        };
-        let resp = resp.map_err(|e| {
-            warn!("request connection failed: {}", e);
-            Error::Backend("Failed to connect to server".into())
-        })?;
-        let status = resp.status().as_u16();
-
-        if status >= 400 {
-            warn!("request status error: {}", status);
-            let is_text = resp
-                .headers()
-                .get("Content-Type")
-                .and_then(|v| v.to_str().ok())
-                .map(|v| v.starts_with("text/plain"))
-                .unwrap_or(false);
-            let message = if is_text {
-                resp.text().await.unwrap_or("Server error".into())
-            } else {
-                "Server error".into()
-            };
-            return Err(Error::Server(status, message));
-        }
+        let resp = send(self.request, self.cancel).await?;
         resp.json().await.map_err(|e| {
             warn!("request parsing failed: {}", e);
             Error::Backend("Failed to parse server response".into())
@@ -195,26 +205,52 @@ impl<T: DeserializeOwned> Request<T> {
     }
 }
 
-pub fn endpoints_request(
+pub struct PatcherRequest {
+    request: RequestBuilder,
+    cancel: CancellationToken,
+}
+
+impl PatcherRequest {
+    pub async fn send(self) -> Result<Option<PatcherResponse>, Error> {
+        let resp = send(self.request, self.cancel).await?;
+        let status = resp.status().as_u16();
+        if status == 304 {
+            return Ok(None);
+        }
+        let etag = resp
+            .headers()
+            .get("ETag")
+            .and_then(|v| v.to_str().ok())
+            .ok_or(Error::Server(
+                status,
+                "Patch server did not return a valid Etag header".into(),
+            ))?
+            .to_owned();
+        println!("SERVER ETAG: {}", etag);
+        let content = resp.text().await.map_err(|e| {
+            warn!("failed to read body of patcher request {}", e);
+            Error::Server(status, "Failed to parse patcher server response".into())
+        })?;
+        Ok(Some(PatcherResponse { etag, content }))
+    }
+}
+
+pub fn simple_request<T: DeserializeOwned>(
     client: &reqwest::Client,
     cancel: CancellationToken,
     url: &str,
-) -> Request<Vec<Endpoint>> {
+) -> JsonRequest<T> {
     let req = client.get(url);
-    Request::new(req, cancel)
+    JsonRequest::new(req, cancel)
 }
 
 pub fn launcher_request(
     client: &reqwest::Client,
     cancel: CancellationToken,
     endpoint: &Endpoint,
-) -> Request<LauncherResponse> {
-    let req = client.get(format!(
-        "http://{}:{}/launcher",
-        endpoint.host,
-        endpoint.get_launcher_port()
-    ));
-    Request::new(req, cancel)
+) -> JsonRequest<LauncherResponse> {
+    let req = client.get(endpoint.url("/launcher"));
+    JsonRequest::new(req, cancel)
 }
 
 pub fn login_request(
@@ -223,16 +259,10 @@ pub fn login_request(
     endpoint: &Endpoint,
     username: &str,
     password: &str,
-) -> Request<AuthResponse> {
+) -> JsonRequest<AuthResponse> {
     let user_request = UserRequest { username, password };
-    let req = client
-        .post(format!(
-            "http://{}:{}/login",
-            endpoint.host,
-            endpoint.get_launcher_port()
-        ))
-        .json(&user_request);
-    Request::new(req, cancel)
+    let req = client.post(endpoint.url("/login")).json(&user_request);
+    JsonRequest::new(req, cancel)
 }
 
 pub fn register_request(
@@ -241,16 +271,10 @@ pub fn register_request(
     endpoint: &Endpoint,
     username: &str,
     password: &str,
-) -> Request<AuthResponse> {
+) -> JsonRequest<AuthResponse> {
     let user_request = UserRequest { username, password };
-    let req = client
-        .post(format!(
-            "http://{}:{}/register",
-            endpoint.host,
-            endpoint.get_launcher_port()
-        ))
-        .json(&user_request);
-    Request::new(req, cancel)
+    let req = client.post(endpoint.url("register")).json(&user_request);
+    JsonRequest::new(req, cancel)
 }
 
 pub fn delete_character_request(
@@ -259,19 +283,15 @@ pub fn delete_character_request(
     endpoint: &Endpoint,
     token: &str,
     character_id: i32,
-) -> Request<EmptyResponse> {
+) -> JsonRequest<EmptyResponse> {
     let delete_request = CharacterRequest {
         token,
         char_id: character_id,
     };
     let req = client
-        .post(format!(
-            "http://{}:{}/character/create",
-            endpoint.host,
-            endpoint.get_launcher_port()
-        ))
+        .post(endpoint.url("/character/delete"))
         .json(&delete_request);
-    Request::new(req, cancel)
+    JsonRequest::new(req, cancel)
 }
 
 pub fn create_character_request(
@@ -279,16 +299,12 @@ pub fn create_character_request(
     cancel: CancellationToken,
     endpoint: &Endpoint,
     token: &str,
-) -> Request<CharacterData> {
+) -> JsonRequest<CharacterData> {
     let token_req = TokenRequest { token };
     let req = client
-        .post(format!(
-            "http://{}:{}/character/create",
-            endpoint.host,
-            endpoint.get_launcher_port()
-        ))
+        .post(endpoint.url("/character/create"))
         .json(&token_req);
-    Request::new(req, cancel)
+    JsonRequest::new(req, cancel)
 }
 
 pub fn export_save_request(
@@ -297,17 +313,26 @@ pub fn export_save_request(
     endpoint: &Endpoint,
     token: &str,
     character_id: i32,
-) -> Request<Value> {
+) -> JsonRequest<Value> {
     let export_request = CharacterRequest {
         token,
         char_id: character_id,
     };
     let req = client
-        .post(format!(
-            "http://{}:{}/character/export",
-            endpoint.host,
-            endpoint.get_launcher_port()
-        ))
+        .post(endpoint.url("/character/export"))
         .json(&export_request);
-    Request::new(req, cancel)
+    JsonRequest::new(req, cancel)
+}
+
+pub fn patcher_request(
+    client: &reqwest::Client,
+    cancel: CancellationToken,
+    url: &str,
+    client_etag: &str,
+) -> PatcherRequest {
+    println!("CLIENT ETAG: {}", client_etag);
+    let request = client
+        .get(format!("{}/check", url))
+        .header("If-None-Match", client_etag);
+    PatcherRequest { request, cancel }
 }

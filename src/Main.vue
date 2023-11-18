@@ -8,7 +8,7 @@ import {
   storeMut,
   initStore,
   initRemoteEndpoints,
-  logMessage,
+  updatePatcher,
   logText,
 } from "./store";
 import ClassicLauncher from "./classic/Launcher.vue";
@@ -21,8 +21,12 @@ initStore().then(() => (initialLoaded.value = true));
 listen("endpoints", ({ payload }) => {
   initRemoteEndpoints(payload);
 });
-listen("error", ({ payload }) => {
-  logText("error", payload);
+listen("messages", ({ payload }) => {});
+listen("patcher", ({ payload }) => {
+  updatePatcher(payload);
+});
+listen("log", ({ payload }) => {
+  logText(payload.level, payload.message);
 });
 </script>
 

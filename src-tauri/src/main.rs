@@ -2,22 +2,28 @@
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
 )]
+#![feature(result_option_inspect)]
+#![feature(iterator_try_collect)]
+#![feature(absolute_path)]
 
 mod config;
+mod endpoint;
+mod patcher;
 mod server;
 mod store;
 
 use std::{
+    collections::HashMap,
     fs::File,
-    path::{Path, PathBuf},
+    path::{self, Path, PathBuf},
     sync::Arc,
 };
 
 use log::{error, info, warn};
 use mhf_iel::MhfConfig;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
-use server::{AuthResponse, LauncherResponse};
+use server::{AuthResponse, JsonRequest, LauncherResponse, MessageData, PatcherResponse};
 use store::StoreHelper;
 use tauri::{async_runtime::Mutex, PhysicalSize};
 use tauri::{Manager, Window};
@@ -25,7 +31,8 @@ use tauri_plugin_log::LogTarget;
 use tauri_plugin_store::StoreBuilder;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::{CLASSIC_STYLE, DEFAULT_SERVERLIST_URL, MODERN_STYLE};
+use crate::config::{CLASSIC_STYLE, DEFAULT_MESSAGELIST_URL, DEFAULT_SERVERLIST_URL, MODERN_STYLE};
+use crate::endpoint::{Endpoint, EndpointConfig, EndpointVecExt};
 
 const APP_NAME: &str = "mhf-launcher";
 
@@ -44,31 +51,35 @@ struct TauriStateSync {
     style: u32,
     locale: String,
     store: StoreHelper,
-    exit_reason: Option<ExitSignal>,
     endpoints: Vec<Endpoint>,
     remote_endpoints: Vec<Endpoint>,
+    remote_endpoints_config: HashMap<String, EndpointConfig>,
     current_endpoint: Endpoint,
-    launcher_resp: Option<LauncherResponse>,
-    cancel_launcher_resp: CancellationToken,
-    auth_resp: Option<AuthResponse>,
-    cancel_auth_resp: CancellationToken,
-    cancel_delete_character_resp: CancellationToken,
-    cancel_create_character_resp: CancellationToken,
-    cancel_serverlist_resp: CancellationToken,
     username: String,
     password: String,
     remember_me: bool,
     game_folder: Option<PathBuf>,
     last_char_id: Option<u32>,
     serverlist_url: String,
+    messagelist_url: String,
+
+    exit_reason: Option<ExitSignal>,
+
+    auth_resp: Option<AuthResponse>,
+    launcher_resp: Option<LauncherResponse>,
+    patcher_resp: Option<PatcherResponse>,
+
+    cancel_shared: CancellationToken,
+    cancel_launcher: CancellationToken,
+    cancel_serverlist: CancellationToken,
+    cancel_messagelist: CancellationToken,
 }
 
 impl TauriStateSync {
-    fn first_endpoint(&self) -> Result<&Endpoint, &str> {
+    fn first_endpoint(&self) -> Option<&Endpoint> {
         self.remote_endpoints
             .first()
             .or_else(|| self.endpoints.first())
-            .ok_or("Unable to find a valid endpoint")
     }
 
     fn contains_endpoint(&self, endpoint: &Endpoint) -> bool {
@@ -79,36 +90,72 @@ impl TauriStateSync {
         }
     }
 
+    fn ensure_current_endpoint(&mut self) -> Result<(), &'static str> {
+        let endpoints = if self.current_endpoint.is_remote {
+            &self.endpoints
+        } else {
+            &self.remote_endpoints
+        };
+
+        self.current_endpoint = endpoints
+            .iter()
+            .find(|&e| e == &self.current_endpoint)
+            .or_else(|| self.first_endpoint())
+            .ok_or("Unable to get a valid current endpoint")?
+            .clone();
+        Ok(())
+    }
+
     fn auth_resp_err(&self) -> Result<&AuthResponse, &str> {
         self.auth_resp
             .as_ref()
             .ok_or("Authentication data is not set")
     }
-}
 
-#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Endpoint {
-    pub name: String,
-    pub host: String,
-    pub launcher_port: Option<u16>,
-    pub game_port: Option<u16>,
-    pub game_folder: Option<PathBuf>,
-    #[serde(default)]
-    pub is_remote: bool,
-}
-
-impl Endpoint {
-    fn get_launcher_port(&self) -> u16 {
-        self.launcher_port.unwrap_or(8080)
+    fn effective_folder(&self) -> PathBuf {
+        self.current_endpoint
+            .game_folder
+            .as_ref()
+            .or(self.game_folder.as_ref())
+            .cloned()
+            .unwrap_or_else(|| std::env::current_dir().unwrap())
     }
 }
 
-#[derive(Default, Debug, Serialize, Clone)]
+#[derive(Default, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct EndpointsPayload {
     endpoints: Option<Vec<Endpoint>>,
     remote_endpoints: Option<Vec<Endpoint>>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthPayload {
+    response: AuthResponse,
+    has_patch: bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct LogPayload {
+    level: String,
+    message: String,
+}
+
+impl LogPayload {
+    fn error(message: impl Into<String>) -> Self {
+        Self {
+            level: "error".into(),
+            message: message.into(),
+        }
+    }
+
+    fn warning(message: impl Into<String>) -> Self {
+        Self {
+            level: "warning".into(),
+            message: message.into(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -180,27 +227,40 @@ async fn set_locale(state: tauri::State<'_, TauriState>, locale: String) -> Resu
 async fn set_endpoints(
     state: tauri::State<'_, TauriState>,
     endpoints: Vec<Endpoint>,
-    current_endpoint: Endpoint,
 ) -> Result<Endpoint, String> {
+    endpoints.check_valid()?;
     let mut state_sync = state.state_sync.lock().await;
-    for endpoint in &endpoints {
-        if endpoint.name.is_empty() {
-            return Err("Server name must not be empty".into());
-        } else if endpoint.host.is_empty() {
-            return Err("Server host must not be empty".into());
-        } else if endpoints.iter().filter(|e| e.name == endpoint.name).count() > 1 {
-            return Err("Server names must be unique".into());
-        }
+    state_sync.endpoints = endpoints;
+    if !state_sync.current_endpoint.is_remote {
+        state_sync.ensure_current_endpoint()?;
     }
-    state_sync.endpoints = endpoints.clone();
-    if state_sync.contains_endpoint(&current_endpoint) {
-        state_sync.current_endpoint = current_endpoint.clone();
-    } else {
-        state_sync.current_endpoint = state_sync.first_endpoint()?.clone();
-    }
+    let endpoints = state_sync.endpoints.clone();
     let current_endpoint = state_sync.current_endpoint.clone();
     state_sync.store.with(|s| {
         s.set("endpoints", endpoints);
+        s.set("current_endpoint", current_endpoint);
+    });
+    Ok(state_sync.current_endpoint.clone())
+}
+
+#[tauri::command]
+async fn set_remote_endpoints(
+    state: tauri::State<'_, TauriState>,
+    endpoints: Vec<Endpoint>,
+) -> Result<Endpoint, String> {
+    endpoints.check_valid()?;
+    let state_sync = &mut *state.state_sync.lock().await;
+    state_sync.remote_endpoints = endpoints;
+    if state_sync.current_endpoint.is_remote {
+        state_sync.ensure_current_endpoint()?;
+    }
+    state_sync
+        .remote_endpoints
+        .update_config(&mut state_sync.remote_endpoints_config);
+    let current_endpoint = state_sync.current_endpoint.clone();
+    let remote_endpoints_config = state_sync.remote_endpoints_config.clone();
+    state_sync.store.with(|s| {
+        s.set("remote_endpoints_config", remote_endpoints_config);
         s.set("current_endpoint", current_endpoint);
     });
     Ok(state_sync.current_endpoint.clone())
@@ -214,9 +274,9 @@ async fn set_current_endpoint(
 ) -> Result<LauncherResponse, String> {
     let req = {
         let mut state_sync = state.state_sync.lock().await;
-        state_sync.cancel_auth_resp.cancel();
-        state_sync.cancel_launcher_resp.cancel();
-        state_sync.cancel_launcher_resp = CancellationToken::new();
+        state_sync.cancel_shared.cancel();
+        state_sync.cancel_launcher.cancel();
+        state_sync.cancel_launcher = CancellationToken::new();
         if state_sync.current_endpoint == current_endpoint {
             if let Some(launcher_resp) = &state_sync.launcher_resp {
                 return Ok(launcher_resp.clone());
@@ -244,14 +304,14 @@ async fn set_current_endpoint(
             };
             window
                 .emit("endpoints", payload)
-                .unwrap_or_else(|e| error!("failed to send endpoints event: {}", e));
+                .unwrap_or_else(|e| warn!("failed to emit message: {}", e));
         }
         state_sync
             .store
             .with(|s| s.set("current_endpoint", current_endpoint));
         server::launcher_request(
             &state.client,
-            state_sync.cancel_launcher_resp.clone(),
+            state_sync.cancel_launcher.clone(),
             &state_sync.current_endpoint,
         )
     };
@@ -282,30 +342,99 @@ async fn set_game_folder(
 async fn set_serverlist_url(
     window: Window,
     state: tauri::State<'_, TauriState>,
-    mut serverlist_url: String,
+    serverlist_url: String,
 ) -> Result<(), String> {
     if serverlist_url.is_empty() {
-        serverlist_url = DEFAULT_SERVERLIST_URL.into();
-    }
-    let req = {
-        let mut state_sync = state.state_sync.lock().await;
-        if serverlist_url == state_sync.serverlist_url {
-            return Ok(());
+        let state_sync = &mut *state.state_sync.lock().await;
+        state_sync.remote_endpoints = config::get_default_endpoints();
+        if state_sync.current_endpoint.is_remote
+            && !state_sync
+                .remote_endpoints
+                .contains(&state_sync.current_endpoint)
+        {
+            let current_endpoint = state_sync.current_endpoint.clone();
+            state_sync.remote_endpoints.push(current_endpoint);
         }
-        state_sync.cancel_serverlist_resp.cancel();
-        state_sync.cancel_serverlist_resp = CancellationToken::new();
-        state_sync.serverlist_url = serverlist_url.clone();
         state_sync
-            .store
-            .with(|s| s.set("serverlist_url", serverlist_url));
-        server::endpoints_request(
-            &state.client,
-            state_sync.cancel_serverlist_resp.clone(),
-            &state_sync.serverlist_url,
-        )
-    };
-    handle_remote_endpoints(&window, req, state.state_sync.clone()).await;
+            .remote_endpoints
+            .apply_config(&state_sync.remote_endpoints_config);
+        let payload = EndpointsPayload {
+            remote_endpoints: Some(state_sync.remote_endpoints.clone()),
+            ..Default::default()
+        };
+        window
+            .emit("endpoints", payload)
+            .unwrap_or_else(|e| warn!("failed to emit message: {}", e));
+    } else {
+        let req = {
+            let mut state_sync = state.state_sync.lock().await;
+            if serverlist_url == state_sync.serverlist_url {
+                return Ok(());
+            }
+            state_sync.cancel_serverlist.cancel();
+            state_sync.cancel_serverlist = CancellationToken::new();
+            server::simple_request(
+                &state.client,
+                state_sync.cancel_serverlist.clone(),
+                &serverlist_url,
+            )
+        };
+        handle_remote_endpoints(&window, req, state.state_sync.clone()).await;
+    }
+    let mut state_sync = state.state_sync.lock().await;
+    state_sync.serverlist_url = serverlist_url.clone();
+    state_sync
+        .store
+        .with(|s| s.set("serverlist_url", serverlist_url));
     Ok(())
+}
+
+async fn auth(
+    state: tauri::State<'_, TauriState>,
+    username: String,
+    password: String,
+    remember_me: bool,
+    auth_req: JsonRequest<AuthResponse>,
+) -> Result<AuthPayload, String> {
+    let auth_resp = auth_req.send().await.map_err(|e| e.into_frontend())?;
+    let patcher_resp = if !auth_resp.patch_server.is_empty() {
+        let patcher_req = {
+            let state_sync = state.state_sync.lock().await;
+            server::patcher_request(
+                &state.client,
+                state_sync.cancel_shared.clone(),
+                &auth_resp.patch_server,
+                &patcher::get_etag(&state_sync.effective_folder()),
+            )
+        };
+        patcher_req.send().await.map_err(|e| e.into_frontend())?
+    } else {
+        None
+    };
+    let mut state_sync = state.state_sync.lock().await;
+    state_sync.username = username.clone();
+    state_sync.password = password.clone();
+    state_sync.auth_resp = Some(auth_resp.clone());
+    let has_patch = patcher_resp.is_some();
+    state_sync.patcher_resp = patcher_resp;
+    state_sync.store.with(|s| {
+        if remember_me {
+            s.set("username", &username);
+            if let Err(e) = keyring::Entry::new(APP_NAME, &username)
+                .and_then(|entry| entry.set_password(&password))
+            {
+                warn!("failed to save password: {}", e)
+            }
+        } else {
+            s.del("username");
+            _ = keyring::Entry::new(APP_NAME, &username).and_then(|entry| entry.delete_password());
+        }
+        s.set("remember_me", remember_me);
+    });
+    Ok(AuthPayload {
+        response: auth_resp,
+        has_patch,
+    })
 }
 
 #[tauri::command]
@@ -314,39 +443,20 @@ async fn login(
     username: String,
     password: String,
     remember_me: bool,
-) -> Result<AuthResponse, String> {
-    let req = {
+) -> Result<AuthPayload, String> {
+    let auth_req = {
         let mut state_sync = state.state_sync.lock().await;
-        state_sync.cancel_auth_resp.cancel();
-        state_sync.cancel_auth_resp = CancellationToken::new();
+        state_sync.cancel_shared.cancel();
+        state_sync.cancel_shared = CancellationToken::new();
         server::login_request(
             &state.client,
-            state_sync.cancel_auth_resp.clone(),
+            state_sync.cancel_shared.clone(),
             &state_sync.current_endpoint,
             &username,
             &password,
         )
     };
-    let data = req.send().await.map_err(|e| e.into_frontend())?;
-    let mut state_sync = state.state_sync.lock().await;
-    state_sync.username = username.clone();
-    state_sync.password = password.clone();
-    state_sync.auth_resp = Some(data.clone());
-    state_sync.store.with(|s| {
-        if remember_me {
-            s.set("username", &username);
-            if let Err(e) = keyring::Entry::new(APP_NAME, &username)
-                .and_then(|entry| entry.set_password(&password))
-            {
-                warn!("failed to save password: {}", e)
-            }
-        } else {
-            s.del("username");
-            _ = keyring::Entry::new(APP_NAME, &username).and_then(|entry| entry.delete_password());
-        }
-        s.set("remember_me", remember_me);
-    });
-    Ok(data)
+    auth(state, username, password, remember_me, auth_req).await
 }
 
 #[tauri::command]
@@ -355,49 +465,30 @@ async fn register(
     username: String,
     password: String,
     remember_me: bool,
-) -> Result<AuthResponse, String> {
-    let req = {
+) -> Result<AuthPayload, String> {
+    let auth_req = {
         let mut state_sync = state.state_sync.lock().await;
-        state_sync.cancel_auth_resp.cancel();
-        state_sync.cancel_auth_resp = CancellationToken::new();
+        state_sync.cancel_shared.cancel();
+        state_sync.cancel_shared = CancellationToken::new();
         server::register_request(
             &state.client,
-            state_sync.cancel_auth_resp.clone(),
+            state_sync.cancel_shared.clone(),
             &state_sync.current_endpoint,
             &username,
             &password,
         )
     };
-    let data = req.send().await.map_err(|e| e.into_frontend())?;
-    let mut state_sync = state.state_sync.lock().await;
-    state_sync.username = username.clone();
-    state_sync.password = password.clone();
-    state_sync.auth_resp = Some(data.clone());
-    state_sync.store.with(|s| {
-        if remember_me {
-            s.set("username", &username);
-            if let Err(e) = keyring::Entry::new(APP_NAME, &username)
-                .and_then(|entry| entry.set_password(&password))
-            {
-                warn!("failed to save password: {}", e)
-            }
-        } else {
-            s.del("username");
-            _ = keyring::Entry::new(APP_NAME, &username).and_then(|entry| entry.delete_password());
-        }
-        s.set("remember_me", remember_me);
-    });
-    Ok(data)
+    auth(state, username, password, remember_me, auth_req).await
 }
 
 async fn reauth(state: &mut tauri::State<'_, TauriState>) -> Result<(), String> {
     let req = {
         let mut state_sync = state.state_sync.lock().await;
-        state_sync.cancel_auth_resp.cancel();
-        state_sync.cancel_auth_resp = CancellationToken::new();
+        state_sync.cancel_shared.cancel();
+        state_sync.cancel_shared = CancellationToken::new();
         server::login_request(
             &state.client,
-            state_sync.cancel_auth_resp.clone(),
+            state_sync.cancel_shared.clone(),
             &state_sync.current_endpoint,
             &state_sync.username,
             &state_sync.password,
@@ -413,13 +504,13 @@ async fn reauth(state: &mut tauri::State<'_, TauriState>) -> Result<(), String> 
 
 async fn get_create_character_request(
     state: &mut tauri::State<'_, TauriState>,
-) -> Result<server::Request<server::CharacterData>, String> {
+) -> Result<server::JsonRequest<server::CharacterData>, String> {
     let mut state_sync = state.state_sync.lock().await;
-    state_sync.cancel_create_character_resp.cancel();
-    state_sync.cancel_create_character_resp = CancellationToken::new();
+    state_sync.cancel_shared.cancel();
+    state_sync.cancel_shared = CancellationToken::new();
     let req = server::create_character_request(
         &state.client,
-        state_sync.cancel_create_character_resp.clone(),
+        state_sync.cancel_shared.clone(),
         &state_sync.current_endpoint,
         &state_sync.auth_resp_err()?.user.token,
     );
@@ -480,13 +571,13 @@ async fn select_character(
 async fn get_delete_character_request(
     state: &mut tauri::State<'_, TauriState>,
     character_id: i32,
-) -> Result<server::Request<server::EmptyResponse>, String> {
+) -> Result<server::JsonRequest<server::EmptyResponse>, String> {
     let mut state_sync = state.state_sync.lock().await;
-    state_sync.cancel_delete_character_resp.cancel();
-    state_sync.cancel_delete_character_resp = CancellationToken::new();
+    state_sync.cancel_shared.cancel();
+    state_sync.cancel_shared = CancellationToken::new();
     let req = server::delete_character_request(
         &state.client,
-        state_sync.cancel_delete_character_resp.clone(),
+        state_sync.cancel_shared.clone(),
         &state_sync.current_endpoint,
         &state_sync.auth_resp_err()?.user.token,
         character_id,
@@ -515,7 +606,7 @@ async fn delete_character(
 async fn get_export_character_request(
     state: &mut tauri::State<'_, TauriState>,
     character_id: i32,
-) -> Result<server::Request<Value>, String> {
+) -> Result<server::JsonRequest<Value>, String> {
     let state_sync = state.state_sync.lock().await;
     let req = server::export_save_request(
         &state.client,
@@ -556,23 +647,43 @@ async fn export_character(
         .ok()
         .and_then(|f| serde_json::to_writer_pretty(f, &data).ok())
         .ok_or("Failed to create save file")?;
-    Ok(path.to_owned())
+    path::absolute(path).or(Err("Unable to get absolute path for exported file".into()))
 }
 
-// TODO: re-enable auto-login logic?
-// async fn handle_auto(
-//     req: server::Request<AuthResponse>,
-//     character_id: u32,
-// ) -> Result<AuthResponse, String> {
-//     let now = Instant::now();
-//     let auth_resp = req.send().await.map_err(|e| e.into_frontend())?;
-//     if !auth_resp.characters.iter().any(|c| c.id == character_id) {
-//         return Err("The last played character does not exist anymore".into());
-//     }
-//     let took = Instant::now().duration_since(now);
-//     tokio::time::sleep(Duration::from_secs(3).saturating_sub(took)).await;
-//     Ok(auth_resp)
-// }
+#[tauri::command]
+async fn patcher_start(window: Window, state: tauri::State<'_, TauriState>) -> Result<(), String> {
+    let (patcher_url, patcher_resp, game_folder, cancel) = {
+        let mut state_sync = state.state_sync.lock().await;
+        state_sync.cancel_shared.cancel();
+        state_sync.cancel_shared = CancellationToken::new();
+        (
+            state_sync.auth_resp_err()?.patch_server.clone(),
+            state_sync.patcher_resp.take(),
+            state_sync.effective_folder(),
+            state_sync.cancel_shared.clone(),
+        )
+    };
+    let Some(patcher_resp) = patcher_resp else {
+        return Err("Patcher initialized before completing patcher request".into());
+    };
+    let _client = state.client.clone();
+    tauri::async_runtime::spawn(patcher::patch(
+        window,
+        _client,
+        patcher_url,
+        patcher_resp,
+        game_folder,
+        cancel,
+    ));
+    Ok(())
+}
+
+#[tauri::command]
+async fn patcher_stop(state: tauri::State<'_, TauriState>) -> Result<(), String> {
+    let state_sync = state.state_sync.lock().await;
+    state_sync.cancel_shared.cancel();
+    Ok(())
+}
 
 fn handle_style(window: &mut Window, style: u32) {
     match style {
@@ -590,28 +701,32 @@ fn handle_style(window: &mut Window, style: u32) {
 
 async fn handle_remote_endpoints(
     window: &Window,
-    req: server::Request<Vec<Endpoint>>,
+    req: server::JsonRequest<Vec<Endpoint>>,
     state_sync_mutex: Arc<Mutex<TauriStateSync>>,
 ) {
-    let resp = req.send().await;
-    let mut remote_endpoints = config::get_fixed_endpoints();
-    let fixed_len = remote_endpoints.len();
-    let result = match resp {
-        Ok(mut serverlist_endpoints) => {
-            for endpoint in &mut serverlist_endpoints {
-                endpoint.is_remote = true;
-            }
-            remote_endpoints.append(&mut serverlist_endpoints);
-            Ok(())
+    let mut serverlist_endpoints = match req.send().await {
+        Ok(endpoints) => endpoints,
+        Err(e) => {
+            warn!("failed to fetch remote servers: {}", e);
+            window
+                .emit("log", LogPayload::warning("Unable to fetch remote servers"))
+                .unwrap_or_else(|e| warn!("failed to emit message: {}", e));
+            return;
         }
-        Err(err) => Err(err.into_frontend()),
     };
-    let mut state_sync = state_sync_mutex.lock().await;
+    for endpoint in &mut serverlist_endpoints {
+        endpoint.is_remote = true;
+    }
+    let mut remote_endpoints = config::get_default_endpoints();
+    let default_len = remote_endpoints.len();
+    remote_endpoints.extend_valid(serverlist_endpoints);
+    let state_sync = &mut *state_sync_mutex.lock().await;
     if state_sync.current_endpoint.is_remote
         && !remote_endpoints.contains(&state_sync.current_endpoint)
     {
-        remote_endpoints.insert(fixed_len, state_sync.current_endpoint.clone());
+        remote_endpoints.insert(default_len, state_sync.current_endpoint.clone())
     }
+    remote_endpoints.apply_config(&state_sync.remote_endpoints_config);
     state_sync.remote_endpoints = remote_endpoints;
     let payload = EndpointsPayload {
         remote_endpoints: Some(state_sync.remote_endpoints.clone()),
@@ -619,29 +734,33 @@ async fn handle_remote_endpoints(
     };
     window
         .emit("endpoints", payload)
-        .unwrap_or_else(|e| error!("failed to send event: {}", e));
-    if let Err(err) = result {
-        window
-            .emit(
-                "error",
-                format!("Failed to fetch data from serverlist url: {}", err).to_owned(),
+        .unwrap_or_else(|e| warn!("failed to emit message: {}", e));
+}
+
+async fn handle_remote_messages(window: &Window, req: server::JsonRequest<Vec<MessageData>>) {
+    match req.send().await {
+        Ok(messages) => window.emit("messages", messages),
+        Err(e) => {
+            warn!("failed to fetch global messages: {}", e);
+            window.emit(
+                "log",
+                LogPayload::warning("Unable to fetch global messages"),
             )
-            .unwrap_or_else(|e| error!("failed to send event: {}", e));
+        }
     }
+    .unwrap_or_else(|e| warn!("failed to emit message: {}", e));
 }
 
 fn main() {
-    // env_logger::Builder::new()
-    //     .filter_level(log::LevelFilter::Info)
-    //     .init();
     let (config, run) = {
-        let fixed_endpoints = config::get_fixed_endpoints();
-        let current_endpoint = fixed_endpoints[0].clone();
+        let default_endpoints = config::get_default_endpoints();
+        let current_endpoint = default_endpoints[0].clone();
         let state_sync = Arc::new(Mutex::new(TauriStateSync {
-            remote_endpoints: fixed_endpoints,
+            remote_endpoints: default_endpoints,
             current_endpoint,
             locale: "en".into(),
             serverlist_url: DEFAULT_SERVERLIST_URL.into(),
+            messagelist_url: DEFAULT_MESSAGELIST_URL.into(),
             ..Default::default()
         }));
         let mut app = tauri::Builder::default()
@@ -652,7 +771,7 @@ fn main() {
                     .build(),
             )
             .manage(TauriState {
-                client: reqwest::Client::new(),
+                client: reqwest::ClientBuilder::new().gzip(true).build().unwrap(),
                 state_sync: state_sync.clone(),
             })
             .setup(|app| {
@@ -660,18 +779,24 @@ fn main() {
                 window.hide().unwrap();
                 let state: tauri::State<'_, TauriState> = app.state();
                 let mut store = StoreBuilder::new(app.handle(), "config.json".parse()?).build();
-                let mut state_sync = state.state_sync.blocking_lock();
+                let state_sync = &mut *state.state_sync.blocking_lock();
                 match &mut store.load() {
                     Ok(_) => {
                         store::get(&store, "style", &mut state_sync.style);
                         store::get(&store, "locale", &mut state_sync.locale);
                         store::get(&store, "endpoints", &mut state_sync.endpoints);
+                        store::get(
+                            &store,
+                            "remote_endpoints_config",
+                            &mut state_sync.remote_endpoints_config,
+                        );
                         store::get(&store, "current_endpoint", &mut state_sync.current_endpoint);
                         store::get(&store, "username", &mut state_sync.username);
                         store::get(&store, "remember_me", &mut state_sync.remember_me);
                         store::get(&store, "game_folder", &mut state_sync.game_folder);
                         store::get(&store, "last_char_id", &mut state_sync.last_char_id);
                         store::get(&store, "serverlist_url", &mut state_sync.serverlist_url);
+                        store::get(&store, "messagelist_url", &mut state_sync.messagelist_url);
                         if !state_sync.username.is_empty() {
                             match keyring::Entry::new(APP_NAME, &state_sync.username)
                                 .and_then(|entry| entry.get_password())
@@ -680,21 +805,38 @@ fn main() {
                                 Err(e) => warn!("failed to get user password: {}", e),
                             }
                         }
+                        state_sync
+                            .remote_endpoints
+                            .apply_config(&state_sync.remote_endpoints_config);
                         handle_style(&mut window, state_sync.style);
                     }
                     Err(e) => info!("unable to load config from disk: {}", e),
                 }
                 state_sync.store = StoreHelper::new(store);
                 window.show().unwrap();
-                let endpoints_req = server::endpoints_request(
-                    &state.client,
-                    state_sync.cancel_serverlist_resp.clone(),
-                    &state_sync.serverlist_url,
-                );
-                let state_sync_mutex = state.state_sync.clone();
-                tauri::async_runtime::spawn(async move {
-                    handle_remote_endpoints(&window, endpoints_req, state_sync_mutex).await
-                });
+                if !state_sync.serverlist_url.is_empty() {
+                    let endpoints_req = server::simple_request(
+                        &state.client,
+                        state_sync.cancel_serverlist.clone(),
+                        &state_sync.serverlist_url,
+                    );
+                    let state_sync_mutex = state.state_sync.clone();
+                    let window = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        handle_remote_endpoints(&window, endpoints_req, state_sync_mutex).await
+                    });
+                }
+                if !state_sync.messagelist_url.is_empty() {
+                    let messages_req = server::simple_request(
+                        &state.client,
+                        state_sync.cancel_messagelist.clone(),
+                        &state_sync.messagelist_url,
+                    );
+                    let window = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        handle_remote_messages(&window, messages_req).await
+                    });
+                }
                 Ok(())
             })
             .invoke_handler(tauri::generate_handler![
@@ -702,6 +844,7 @@ fn main() {
                 set_style,
                 set_locale,
                 set_endpoints,
+                set_remote_endpoints,
                 set_current_endpoint,
                 set_game_folder,
                 set_serverlist_url,
@@ -711,6 +854,8 @@ fn main() {
                 select_character,
                 delete_character,
                 export_character,
+                patcher_start,
+                patcher_stop,
             ])
             .build(tauri::generate_context!())
             .expect("error while building tauri application");

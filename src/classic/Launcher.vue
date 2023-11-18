@@ -18,6 +18,8 @@ import {
   SETTINGS_PAGE,
   CHARACTERS_PAGE,
   openPicker,
+  PATCHER_PAGE,
+  PATCHER_DIALOG,
 } from "../common";
 import {
   store,
@@ -33,7 +35,10 @@ import {
   bannerIndex,
   setBannerIndex,
   onSettingsButton,
+  dialogCallback,
+  patcherLog,
 } from "../store";
+import Patcher from "./Patcher.vue";
 
 setCurrentEndpoint(store.currentEndpoint);
 
@@ -74,12 +79,26 @@ const messages = computed(() => {
             </div>
           </div>
         </div>
-        <div class="ml-3 h-full w-full grow">
-          <Login v-if="storeMut.page === LOGIN_PAGE"></Login>
-          <Characters
-            v-else-if="storeMut.page === CHARACTERS_PAGE"
-          ></Characters>
+        <div class="ml-3 h-full w-full grow flex flex-col items-center">
+          <Characters v-if="storeMut.page === CHARACTERS_PAGE"></Characters>
           <Settings v-else-if="storeMut.page === SETTINGS_PAGE"></Settings>
+          <template v-else>
+            <Login v-if="storeMut.page === LOGIN_PAGE"></Login>
+            <Patcher v-else-if="storeMut.page === PATCHER_PAGE"></Patcher>
+            <div
+              class="grow bg-[#00000099] border-[1px] border-white/20 w-full rounded-sm m-2 p-[6px] text-[14px] leading-[14px] h-0 w-[426px] max-w-[426px]"
+            >
+              <div class="overflow-auto scrollbar h-full">
+                <div v-for="log in store.log" style="overflow-anchor: none">
+                  <div :class="log.level">{{ log.message }}</div>
+                </div>
+                <div v-if="patcherLog">
+                  <div class="warning">{{ patcherLog }}</div>
+                </div>
+                <div style="overflow-anchor: auto; height: 1px"></div>
+              </div>
+            </div>
+          </template>
         </div>
         <button
           class="font-main cursor-pointer h-[31px] w-[279px] text-center border-[#d1c0a544] text-[#d1c0a5] font-['Shippori Mincho'] border-[1px] rounded bg-[#00000099] hover:bg-[#1b1b1b99] text-lg ml-3 mt-3"
@@ -144,7 +163,7 @@ const messages = computed(() => {
       </div>
     </div>
     <div
-      class="bg-[#00000080] h-[39px] col-span-2 flex gap-3 px-[30px] items-center"
+      class="bg-[#00000080] h-[39px] col-span-2 flex gap-3 px-[30px] items-center overflow-clip"
     >
       <img src="/classic/capcom.png" class="object-contain" draggable="false" />
       <img src="/classic/cog.png" class="object-contain" draggable="false" />
@@ -217,7 +236,7 @@ const messages = computed(() => {
   >
     <div class="flex items-center h-full">
       <div
-        class="bg-[url('/classic/dialog.jpg')] bg-contain flex flex-col items-center m-auto news-default gap-1"
+        class="bg-[url('/classic/dialog.jpg')] bg-contain flex flex-col items-center m-auto news-default gap-1 px-14"
         :class="
           store.dialogKind === DELETE_DIALOG
             ? 'w-[560px] h-[320px] pt-[90px]'
@@ -239,6 +258,12 @@ const messages = computed(() => {
             }}
           </div>
         </template>
+        <template v-else-if="store.dialogKind === PATCHER_DIALOG">
+          <div class="text-xl">
+            {{ $t("patcher-updates-label") }}
+          </div>
+          <div v-html="$t('patcher-updates-confirmation')"></div>
+        </template>
         <template
           v-if="store.dialogKind === SERVERS_DIALOG && storeMut.editEndpoint"
         >
@@ -259,10 +284,16 @@ const messages = computed(() => {
               type="text"
               class="box-text w-full col-span-5 text-white"
               spellcheck="false"
-              :class="store.editEndpointNew ? 'col-span-7' : 'col-span-5'"
+              :class="
+                (store.editEndpointNew || storeMut.editEndpoint.isRemote
+                  ? 'col-span-7'
+                  : 'col-span-5') +
+                (storeMut.editEndpoint.isRemote ? ' disabled' : '')
+              "
+              :disabled="storeMut.editEndpoint.isRemote"
             />
             <button
-              v-if="!store.editEndpointNew"
+              v-if="!store.editEndpointNew && !storeMut.editEndpoint.isRemote"
               class="box-text box-btn col-span-2"
               @click.prevent="dialogRemoveEndpoint"
             >
@@ -282,6 +313,8 @@ const messages = computed(() => {
               type="text"
               spellcheck="false"
               class="box-text w-full col-span-3 text-white"
+              :class="{ disabled: storeMut.editEndpoint.isRemote }"
+              :disabled="storeMut.editEndpoint.isRemote"
             />
             <input
               v-model.number="storeMut.editEndpoint.launcherPort"
@@ -289,6 +322,8 @@ const messages = computed(() => {
               class="box-text col-span-2 text-white"
               spellcheck="false"
               placeholder="8080"
+              :class="{ disabled: storeMut.editEndpoint.isRemote }"
+              :disabled="storeMut.editEndpoint.isRemote"
             />
             <input
               v-model.number="storeMut.editEndpoint.gamePort"
@@ -296,6 +331,8 @@ const messages = computed(() => {
               class="box-text col-span-2 text-white"
               spellcheck="false"
               placeholder="53310"
+              :class="{ disabled: storeMut.editEndpoint.isRemote }"
+              :disabled="storeMut.editEndpoint.isRemote"
             />
             <label class="text-md news-default col-span-7">{{
               $t("server-game-folder-label")
@@ -322,14 +359,13 @@ const messages = computed(() => {
           <form method="dialog">
             <button
               class="box-text box-lg box-btn"
-              @click.prevent="
-                store.dialogKind === DELETE_DIALOG
-                  ? dialogDeleteCharacterConfirm()
-                  : dialogSaveEndpoint()
-              "
+              @click.prevent="dialogCallback"
             >
               <span v-if="store.dialogKind === DELETE_DIALOG">
                 {{ $t("delete-button") }}
+              </span>
+              <span v-else-if="store.dialogKind === PATCHER_DIALOG">
+                {{ $t("install-button") }}
               </span>
               <span v-else-if="store.editEndpointNew">
                 {{ $t("add-button") }}

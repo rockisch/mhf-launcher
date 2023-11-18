@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/api/shell";
 import Login from "./Login.vue";
 import Characters from "./Characters.vue";
 import Settings from "./Settings.vue";
+import Patcher from "./Patcher.vue";
 import {
   storeMut,
   store,
@@ -13,10 +14,9 @@ import {
   currentBanner,
   onSettingsButton,
   closeDialog,
-  dialogSaveEndpoint,
-  dialogDeleteCharacterConfirm,
   dismissRecentLog,
   dialogRemoveEndpoint,
+  dialogCallback,
 } from "../store";
 import {
   LOGIN_PAGE,
@@ -25,6 +25,8 @@ import {
   formatDate,
   DELETE_DIALOG,
   SERVERS_DIALOG,
+  PATCHER_DIALOG,
+  PATCHER_PAGE,
 } from "../common";
 import { effectiveFolder } from "../store";
 
@@ -67,10 +69,15 @@ const alertClass = {
       <div class="flex flex-col gap-3 row-span-2 overflow-hidden">
         <Login v-if="storeMut.page == LOGIN_PAGE"></Login>
         <Characters v-else-if="storeMut.page == CHARACTERS_PAGE"></Characters>
+        <Patcher v-else-if="storeMut.page == PATCHER_PAGE"></Patcher>
         <div
           class="grow flex gap-2 flex-row-reverse content-start flex-wrap-reverse"
         >
-          <button class="btn btn-sm btn-primary" @click="onSettingsButton">
+          <button
+            class="btn btn-sm btn-primary"
+            @click="onSettingsButton"
+            :disabled="store.authLoading"
+          >
             {{ $t("settings-button") }}
           </button>
           <button
@@ -138,6 +145,10 @@ const alertClass = {
             }}
           </p>
         </template>
+        <template v-else-if="store.dialogKind === PATCHER_DIALOG">
+          <h3 class="font-bold text-lg">{{ $t("patcher-updates-label") }}</h3>
+          <p class="py-4" v-html="$t('patcher-updates-confirmation')"></p>
+        </template>
         <template v-else-if="store.dialogKind === SERVERS_DIALOG">
           <h3 class="font-bold text-lg">
             <span v-if="store.editEndpointNew">
@@ -156,10 +167,15 @@ const alertClass = {
               type="text"
               spellcheck="false"
               class="input input-sm input-primary"
-              :class="store.editEndpointNew ? 'col-span-7' : 'col-span-5'"
+              :class="
+                store.editEndpointNew || storeMut.editEndpoint.isRemote
+                  ? 'col-span-7'
+                  : 'col-span-5'
+              "
+              :disabled="storeMut.editEndpoint.isRemote"
             />
             <button
-              v-if="!store.editEndpointNew"
+              v-if="!store.editEndpointNew && !storeMut.editEndpoint.isRemote"
               class="btn btn-sm btn-primary col-span-2"
               @click.prevent="dialogRemoveEndpoint"
             >
@@ -179,6 +195,7 @@ const alertClass = {
               type="text"
               spellcheck="false"
               class="input input-sm input-primary col-span-3"
+              :disabled="storeMut.editEndpoint.isRemote"
             />
             <input
               v-model.number="storeMut.editEndpoint.launcherPort"
@@ -186,6 +203,7 @@ const alertClass = {
               class="input input-sm input-primary col-span-2"
               spellcheck="false"
               placeholder="8080"
+              :disabled="storeMut.editEndpoint.isRemote"
             />
             <input
               v-model.number="storeMut.editEndpoint.gamePort"
@@ -193,6 +211,7 @@ const alertClass = {
               class="input input-sm input-primary col-span-2"
               spellcheck="false"
               placeholder="53310"
+              :disabled="storeMut.editEndpoint.isRemote"
             />
             <label class="col-span-7 mt-1">
               {{ $t("server-game-folder-label") }}
@@ -218,14 +237,13 @@ const alertClass = {
           <form method="dialog">
             <button
               class="btn btn-sm btn-primary"
-              @click.prevent="
-                store.dialogKind === DELETE_DIALOG
-                  ? dialogDeleteCharacterConfirm()
-                  : dialogSaveEndpoint()
-              "
+              @click.prevent="dialogCallback"
             >
               <span v-if="store.dialogKind === DELETE_DIALOG">
                 {{ $t("delete-button") }}
+              </span>
+              <span v-else-if="store.dialogKind === PATCHER_DIALOG">
+                {{ $t("install-button") }}
               </span>
               <span v-else-if="store.editEndpointNew">
                 {{ $t("add-button") }}

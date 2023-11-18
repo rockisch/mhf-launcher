@@ -21,7 +21,7 @@ function openPickerRef() {
 </script>
 
 <template>
-  <div class="grow flex flex-col items-center w-full h-full mt-2 px-12">
+  <div class="flex flex-col items-center w-full mt-2 px-12">
     <div class="min-w-[250px] flex flex-col">
       <label for="username_input">{{ $t("username-label") }}</label>
       <input
@@ -74,6 +74,12 @@ function openPickerRef() {
               >
                 {{ endpoint.name }}
               </span>
+              <span
+                class="py-0.5 px-1.5 hover:bg-[#304368b8]"
+                @click="dialogEditEndpoint(i, true)"
+              >
+                ⚙
+              </span>
             </div>
           </div>
           <div v-if="store.endpoints" class="border-b-[1px] border-white/20">
@@ -86,7 +92,7 @@ function openPickerRef() {
               </span>
               <span
                 class="py-0.5 px-1.5 hover:bg-[#304368b8]"
-                @click="dialogEditEndpoint(i)"
+                @click="dialogEditEndpoint(i, false)"
               >
                 ⚙
               </span>
@@ -134,15 +140,5 @@ function openPickerRef() {
       />
       <span class="text-sm">{{ $t("remember-me-label") }}</span>
     </label>
-    <div
-      class="grow bg-[#00000099] border-[1px] border-white/20 w-full rounded-sm m-2 p-[6px] text-[14px] leading-[14px] h-0 w-[426px] max-w-[426px]"
-    >
-      <div class="overflow-auto scrollbar h-full">
-        <div v-for="log in store.log" style="overflow-anchor: none">
-          <div :class="log.level">{{ log.message }}</div>
-        </div>
-        <div style="overflow-anchor: auto; height: 1px"></div>
-      </div>
-    </div>
   </div>
 </template>

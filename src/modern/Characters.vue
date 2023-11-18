@@ -15,9 +15,7 @@ function characterWeaponIcon(weapon) {
 </script>
 
 <template>
-  <div
-    class="rounded shadow shadow-black p-2 bg-black/50 row-span-2 overflow-hidden"
-  >
+  <div class="mhf-card row-span-2 overflow-hidden">
     <div class="flex flex-col gap-2 h-full">
       <div class="flex flex-row-reverse justify-between gap-2">
         <div @click="storeMut.page = LOGIN_PAGE" class="btn btn-sm btn-primary">

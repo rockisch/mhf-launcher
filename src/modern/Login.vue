@@ -1,6 +1,4 @@
 <script setup>
-import { onMounted, onUnmounted, ref, watch, toRef } from "vue";
-import { invoke } from "@tauri-apps/api";
 import { computed } from "@vue/reactivity";
 import { useFluent } from "fluent-vue";
 
@@ -36,7 +34,7 @@ function isCurrentEndpoint(endpoint) {
 
 <template>
   <div class="row-span-2 flex flex-col gap-3">
-    <div class="rounded shadow shadow-black py-2 px-5 bg-black/50 flex gap-2">
+    <div class="mhf-card !px-5 flex gap-2">
       <div class="dropdown dropdown-origin dropdown-glass" @click.stop>
         <label
           tabindex="0"
@@ -51,7 +49,7 @@ function isCurrentEndpoint(endpoint) {
           class="dropdown-content z-[1] menu shadow shadow-black rounded-md w-max p-0 grid grid-cols-[1fr_auto] p-1 gap-x-0 overflow-auto scrollbar max-h-[440px]"
         >
           <template v-if="store.remoteEndpoints.length">
-            <ul class="menu p-0 col-span-2">
+            <ul class="menu p-0">
               <li
                 v-for="endpoint in store.remoteEndpoints"
                 :key="endpoint.name"
@@ -59,6 +57,14 @@ function isCurrentEndpoint(endpoint) {
                 @click="closeDropdown(() => setCurrentEndpoint(endpoint))"
               >
                 <a>{{ endpoint.name }}</a>
+              </li>
+            </ul>
+            <ul class="menu p-0">
+              <li
+                v-for="(_, i) in store.remoteEndpoints"
+                @click="closeDropdown(() => dialogEditEndpoint(i, true))"
+              >
+                <a class="px-2">⚙</a>
               </li>
             </ul>
             <hr class="col-span-2 m-0" />
@@ -77,7 +83,7 @@ function isCurrentEndpoint(endpoint) {
             <ul class="menu p-0">
               <li
                 v-for="(_, i) in store.endpoints"
-                @click="closeDropdown(() => dialogEditEndpoint(i))"
+                @click="closeDropdown(() => dialogEditEndpoint(i, false))"
               >
                 <a class="px-2">⚙</a>
               </li>
@@ -124,9 +130,7 @@ function isCurrentEndpoint(endpoint) {
         </div>
       </div>
     </div>
-    <div
-      class="rounded shadow shadow-black py-3 px-10 bg-black/50 gap-2 flex flex-col"
-    >
+    <div class="mhf-card !py-3 !px-10 flex flex-col gap-2">
       <input
         v-model="storeMut.username"
         :disabled="store.authLoading"

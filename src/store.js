@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api";
+import { emit } from "@tauri-apps/api/event";
 import { computed, reactive, readonly, ref, watch, watchEffect } from "vue";
 
 import { getMessage, setFluentLocale } from "./fluent";
@@ -9,10 +10,18 @@ import {
   SERVERS_DIALOG,
   DELETE_DIALOG,
   SETTINGS_PAGE,
+  PATCHER_PAGE,
+  PATCHER_DIALOG,
+  CHECKING_PATCHER,
+  DONE_PATCHER,
+  ERROR_PATCHER,
+  DOWNLOADING_PATCHER,
+  PATCHING_PATCHER,
 } from "./common";
 
 const storePrivate = reactive({
   endpoints: [],
+  remoteEndpoints: [],
   currentEndpoint: null,
   currentFolder: "",
   lastCharId: null,
@@ -34,6 +43,12 @@ const storePrivate = reactive({
 
   editEndpointNew: false,
   deleteCharacter: null,
+
+  patcher: {
+    total: 0,
+    current: 0,
+    state: DONE_PATCHER,
+  },
 });
 export const store = readonly(storePrivate);
 
@@ -101,6 +116,44 @@ export function onSettingsButton() {
     storeMut.page = prevPage;
   }
 }
+
+export function updatePatcher(patcher) {
+  storePrivate.patcher = patcher;
+  if (patcher.state === DONE_PATCHER) {
+    completePatcher();
+  } else if (patcher.state === ERROR_PATCHER) {
+    cancelPatcher();
+  }
+}
+export const patcherPercentage = computed(() => {
+  console.log(
+    storePrivate.patcher.current,
+    storePrivate.patcher.total,
+    storePrivate.patcher.current / (storePrivate.patcher.total || 1)
+  );
+  switch (storePrivate.patcher.state) {
+    case CHECKING_PATCHER:
+      return 0;
+    case DOWNLOADING_PATCHER:
+      return storePrivate.patcher.current / (storePrivate.patcher.total || 1);
+    default:
+      return 1;
+  }
+});
+export const patcherLog = computed(() => {
+  switch (storePrivate.patcher.state) {
+    case CHECKING_PATCHER:
+      return getMessage("patcher-checking");
+    case DOWNLOADING_PATCHER:
+      return getMessage("patcher-percentage", {
+        percentage: Math.round(patcherPercentage.value * 100),
+      });
+    case PATCHING_PATCHER:
+      return getMessage("patcher-patching");
+    default:
+      return null;
+  }
+});
 
 function handleInvokeError(error, msg, msgArgs, level) {
   if (error !== "") {
@@ -195,10 +248,21 @@ async function hanldeDialogClose(cb) {
   }
 }
 
+const dialogCallbackMap = {
+  [DELETE_DIALOG]: dialogDeleteCharacterConfirm,
+  [SERVERS_DIALOG]: dialogSaveEndpoint,
+  [PATCHER_DIALOG]: dialogStartPatcher,
+};
+export function dialogCallback() {
+  dialogCallbackMap[storePrivate.dialogKind]();
+}
+
 // Dialog server edit/add
 let editEndpointIndex = 0;
+let editEndpointRemote = false;
 export function dialogAddEndpoint() {
   editEndpointIndex = store.endpoints.length;
+  editEndpointRemote = false;
   storeMut.editEndpoint = {
     name: "",
     host: "",
@@ -210,27 +274,39 @@ export function dialogAddEndpoint() {
   storePrivate.dialogKind = SERVERS_DIALOG;
   storePrivate.dialogOpen = true;
 }
-export function dialogEditEndpoint(index) {
+export function dialogEditEndpoint(index, remote) {
   editEndpointIndex = index;
+  editEndpointRemote = remote;
+  let endpoints = remote
+    ? storePrivate.remoteEndpoints
+    : storePrivate.endpoints;
   storeMut.editEndpoint = {
-    ...storePrivate.endpoints[index],
+    ...endpoints[index],
   };
   storePrivate.editEndpointNew = false;
   storePrivate.dialogKind = SERVERS_DIALOG;
   storePrivate.dialogOpen = true;
 }
 export async function dialogRemoveEndpoint() {
-  let endpoints = [...storePrivate.endpoints];
+  let endpoints = editEndpointRemote
+    ? storePrivate.remoteEndpoints
+    : storePrivate.endpoints;
+  endpoints = [...endpoints];
   endpoints.splice(editEndpointIndex, 1);
   // Don't await
-  setEndpoints(endpoints);
+  setEndpoints(endpoints, editEndpointRemote);
   storePrivate.dialogError = "";
   storePrivate.dialogOpen = false;
 }
 export async function dialogSaveEndpoint() {
-  let endpoints = [...storePrivate.endpoints];
+  let endpoints = editEndpointRemote
+    ? storePrivate.remoteEndpoints
+    : storePrivate.endpoints;
+  endpoints = [...endpoints];
   endpoints[editEndpointIndex] = { ...storeMut.editEndpoint };
-  await hanldeDialogClose(async () => await setEndpoints(endpoints));
+  await hanldeDialogClose(
+    async () => await setEndpoints(endpoints, editEndpointRemote)
+  );
 }
 
 // Dialog delete character
@@ -245,18 +321,42 @@ export async function dialogDeleteCharacterConfirm() {
   );
 }
 
+export async function dialogStartPatcher() {
+  storePrivate.authLoading = true;
+  await hanldeDialogClose(async () => {
+    await handleInvoke("patcher_start");
+    storeMut.page = PATCHER_PAGE;
+  });
+}
+export async function completePatcher() {
+  storePrivate.authLoading = false;
+  storeMut.page = CHARACTERS_PAGE;
+}
+export async function cancelPatcher() {
+  await handleInvoke("patcher_stop");
+  storePrivate.authLoading = false;
+  storeMut.page = LOGIN_PAGE;
+}
+
 // Invoke setters
-export async function setEndpoints(endpoints) {
+export async function setEndpoints(endpoints, remote) {
   endpoints = endpoints.map((endpoint) => ({
     ...endpoint,
     launcherPort: endpoint.launcherPort || null,
     gamePort: endpoint.gamePort || null,
   }));
-  let currentEndpoint = await handleInvoke("set_endpoints", {
-    endpoints,
-    currentEndpoint: storePrivate.currentEndpoint,
-  });
-  storePrivate.endpoints = endpoints;
+  let currentEndpoint;
+  if (remote) {
+    currentEndpoint = await handleInvoke("set_remote_endpoints", {
+      endpoints,
+    });
+    storePrivate.remoteEndpoints = endpoints;
+  } else {
+    currentEndpoint = await handleInvoke("set_endpoints", {
+      endpoints,
+    });
+    storePrivate.endpoints = endpoints;
+  }
   if (currentEndpoint !== storePrivate.currentEndpoint) {
     setCurrentEndpoint(currentEndpoint);
   }
@@ -285,7 +385,7 @@ export async function setCurrentEndpoint(currentEndpoint) {
 async function doAuth(kind, message) {
   storePrivate.authLoading = true;
   try {
-    const data = await handleInvoke(
+    const { response, hasPatch } = await handleInvoke(
       kind,
       {
         username: storeMut.username,
@@ -294,8 +394,13 @@ async function doAuth(kind, message) {
       },
       message
     );
-    storePrivate.characters = data.characters;
-    storeMut.page = CHARACTERS_PAGE;
+    storePrivate.characters = response.characters;
+    if (hasPatch) {
+      storePrivate.dialogKind = PATCHER_DIALOG;
+      storePrivate.dialogOpen = true;
+    } else {
+      storeMut.page = CHARACTERS_PAGE;
+    }
   } finally {
     storePrivate.authLoading = false;
   }

@@ -6,11 +6,13 @@ pub const MODERN_STYLE: u32 = 1;
 
 pub const DEFAULT_SERVERLIST_URL: &str =
     "https://raw.githubusercontent.com/rockisch/mhf-launcher/master/serverlist.json";
+pub const DEFAULT_MESSAGELIST_URL: &str =
+    "https://raw.githubusercontent.com/rockisch/mhf-launcher/master/messagelist.json";
 
-pub fn get_fixed_endpoints() -> Vec<Endpoint> {
+pub fn get_default_endpoints() -> Vec<Endpoint> {
     vec![Endpoint {
         name: "Localhost".into(),
-        host: "localhost".into(),
+        host: "http://localhost".into(),
         is_remote: true,
         ..Default::default()
     }]

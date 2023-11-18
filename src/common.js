@@ -2,14 +2,24 @@ export const CLASSIC_STYLE = 0;
 export const MODERN_STYLE = 1;
 
 export const LOGIN_PAGE = 0;
-export const CHARACTERS_PAGE = 1;
-export const SETTINGS_PAGE = 2;
+export const PATCHER_PAGE = 1;
+export const CHARACTERS_PAGE = 2;
+export const SETTINGS_PAGE = 3;
 
 export const DELETE_DIALOG = 0;
 export const SERVERS_DIALOG = 1;
+export const PATCHER_DIALOG = 2;
+
+export const CHECKING_PATCHER = 0;
+export const DOWNLOADING_PATCHER = 1;
+export const PATCHING_PATCHER = 2;
+export const DONE_PATCHER = 3;
+export const ERROR_PATCHER = 4;
 
 export const DEFAULT_SERVERLIST_URL =
   "https://raw.githubusercontent.com/rockisch/mhf-launcher/master/serverlist.json";
+export const DEFAULT_MESSAGELIST_URL =
+  "https://raw.githubusercontent.com/rockisch/mhf-launcher/master/messagelist.json";
 
 export async function requestHandler(cb, error, loading) {
   if (loading) loading.value = true;

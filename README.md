@@ -18,7 +18,10 @@ A custom Monster Hunter Frontier launcher.
 - Multi-language support (currently EN and JP)
 - Allows you to download your character data
 - Allows servers to customize what icons and messages their users will see
-- Reauthentication when token expires (while still in the client)
+- Allows you to connect to the [new patch server](https://github.com/rockisch/mhf-patch-server) if enabled on your host
+- Reauthentication when token expires (in-game auth can still expire)
+- Can use HTTPS to connect to launcher servers (in-game connections are still insecure)
+- ...and much more!
 
 ## Planned Features
 

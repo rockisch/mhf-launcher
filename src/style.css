@@ -108,6 +108,9 @@
   .btn-group .btn:last-child:not(:first-child) {
     @apply rounded-r;
   }
+  .radio:checked {
+    background-color: #A6D8FF;
+  }
 }
 
 .srcollbar {
@@ -136,4 +139,12 @@ optgroup {
 
 .link-image {
   filter: brightness(0) saturate(100%) invert(67%) sepia(84%) saturate(214%) hue-rotate(179deg) brightness(103%) contrast(105%);
+}
+
+.mhf-card {
+  @apply rounded;
+  @apply shadow;
+  @apply shadow-black;
+  @apply p-2;
+  @apply bg-black/50;
 }

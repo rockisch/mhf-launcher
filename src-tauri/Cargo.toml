@@ -19,7 +19,7 @@ log = "0.4"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_repr = "0.1"
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "gzip"] }
 keyring = "2"
 tokio = { version = "1", features = ["macros"] }
 tokio-util = { version = "0.7", features = [] }
@@ -29,6 +29,7 @@ tauri-plugin-log = { git = "https://github.com/tauri-apps/plugins-workspace", br
 
 # mhf-iel = { git = "https://github.com/rockisch/mhf-iel.git", rev = "9c0181f7c5fa24219ab5a9040cd079ecdbc1cb4a" }
 mhf-iel = { path = "../../mhf-iel" }
+sha2 = "0.10"
 # fluent-fallback = "0.7"
 
 [features]

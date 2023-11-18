@@ -85,6 +85,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-log",
@@ -112,6 +113,19 @@ dependencies = [
  "concurrent-queue",
  "event-listener 2.5.3",
  "futures-core",
+]
+
+[[package]]
+name = "async-compression"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc2d0cfb2a7388d34f590e76686704c494ed7aaceed62ee1ba35cbf363abc2a5"
+dependencies = [
+ "flate2",
+ "futures-core",
+ "memchr",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
@@ -2983,6 +2997,7 @@ version = "0.11.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "046cd98826c46c2ac8ddecae268eb5c2e58628688a5fc7a2643704a73faba95b"
 dependencies = [
+ "async-compression",
  "base64 0.21.5",
  "bytes",
  "encoding_rs",
