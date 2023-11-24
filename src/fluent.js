@@ -34,5 +34,5 @@ export function getMessage(message, args) {
       return bundle.formatPattern(msg.value, args);
     } catch (e) {}
   }
-  return message + " " + JSON.stringify(args);
+  return message;
 }

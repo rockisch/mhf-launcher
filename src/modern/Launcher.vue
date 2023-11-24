@@ -1,5 +1,6 @@
 <script setup>
 import { open } from "@tauri-apps/api/shell";
+import { computed } from "@vue/reactivity";
 
 import Login from "./Login.vue";
 import Characters from "./Characters.vue";
@@ -27,6 +28,7 @@ import {
   SERVERS_DIALOG,
   PATCHER_DIALOG,
   PATCHER_PAGE,
+  GAME_VERSIONS,
 } from "../common";
 import { effectiveFolder } from "../store";
 
@@ -35,6 +37,13 @@ const alertClass = {
   warning: "alert-warning",
   error: "alert-error",
 };
+
+const messages = computed(() =>
+  [
+    ...store.messages,
+    ...store.remoteMessages.map((e) => ({ ...e, global: true })),
+  ].sort((a, b) => b.date - a.date)
+);
 </script>
 
 <template>
@@ -98,7 +107,7 @@ const alertClass = {
       <div
         class="grid gap-0.5 gap-x-2 grid-cols-[max-content_auto] overflow-auto content-start ml-1 scrollbar"
       >
-        <template v-for="message in store.messages">
+        <template v-for="message in messages">
           <span class="py-1" :class="{ 'text-yellow-300': message.kind == 1 }">
             {{ formatDate(message.date) }}
           </span>
@@ -158,8 +167,8 @@ const alertClass = {
               {{ $t("server-edit-label") }}
             </span>
           </h3>
-          <div class="grid grid-cols-7 gap-y-0.5 gap-x-3">
-            <label for="server-name" class="col-span-7 mt-1">
+          <div class="grid grid-cols-12 gap-y-0.5 gap-x-3">
+            <label for="server-name" class="col-span-12 mt-1">
               {{ $t("server-name-label") }}
             </label>
             <input
@@ -169,38 +178,38 @@ const alertClass = {
               class="input input-sm input-primary"
               :class="
                 store.editEndpointNew || storeMut.editEndpoint.isRemote
-                  ? 'col-span-7'
-                  : 'col-span-5'
+                  ? 'col-span-12'
+                  : 'col-span-9'
               "
               :disabled="storeMut.editEndpoint.isRemote"
             />
             <button
               v-if="!store.editEndpointNew && !storeMut.editEndpoint.isRemote"
-              class="btn btn-sm btn-primary col-span-2"
+              class="btn btn-sm btn-primary col-span-3"
               @click.prevent="dialogRemoveEndpoint"
             >
               ❌ {{ $t("delete-button") }}
             </button>
-            <label for="server-host" class="col-span-3 mt-1">
+            <label for="server-host" class="col-span-6 mt-1">
               {{ $t("server-host-label") }}
             </label>
-            <label class="col-span-2 mt-1">
+            <label class="col-span-3 mt-1">
               {{ $t("server-launcher-port-label") }}
             </label>
-            <label class="col-span-2 mt-1">
+            <label class="col-span-3 mt-1">
               {{ $t("server-game-port-label") }}
             </label>
             <input
-              v-model="storeMut.editEndpoint.host"
+              v-model="storeMut.editEndpoint.url"
               type="text"
               spellcheck="false"
-              class="input input-sm input-primary col-span-3"
+              class="input input-sm input-primary col-span-6"
               :disabled="storeMut.editEndpoint.isRemote"
             />
             <input
               v-model.number="storeMut.editEndpoint.launcherPort"
               type="text"
-              class="input input-sm input-primary col-span-2"
+              class="input input-sm input-primary col-span-3"
               spellcheck="false"
               placeholder="8080"
               :disabled="storeMut.editEndpoint.isRemote"
@@ -208,21 +217,32 @@ const alertClass = {
             <input
               v-model.number="storeMut.editEndpoint.gamePort"
               type="text"
-              class="input input-sm input-primary col-span-2"
+              class="input input-sm input-primary col-span-3"
               spellcheck="false"
               placeholder="53310"
               :disabled="storeMut.editEndpoint.isRemote"
             />
-            <label class="col-span-7 mt-1">
+            <label class="col-span-10 mt-1">
               {{ $t("server-game-folder-label") }}
+            </label>
+            <label class="col-span-2 mt-1">
+              {{ $t("server-game-version-label") }}
             </label>
             <input
               v-model="storeMut.editEndpoint.gameFolder"
               type="text"
-              class="input input-sm input-primary col-span-7"
+              class="input input-sm input-primary col-span-10"
               spellcheck="false"
               :placeholder="effectiveFolder"
             />
+            <select
+              v-model="storeMut.editEndpoint.version"
+              class="btn btn-sm btn-primary col-span-2"
+            >
+              <option v-for="version in GAME_VERSIONS" :value="version">
+                {{ version }}
+              </option>
+            </select>
           </div>
         </template>
         <div class="flex justify-between gap-2 items-center">

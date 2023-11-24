@@ -27,6 +27,7 @@ server-host-label = Host
 server-launcher-port-label = Launcher Port
 server-game-port-label = Game Port
 server-game-folder-label = Server Game Path
+server-game-version-label = Version
 
 # Messages
 announcements-label = Announcements
@@ -42,6 +43,7 @@ modern-style = Modern Style
 game-folder-label = Game Folder
 current-folder-label = Current Folder
 list-remote-servers-label = List Remote Servers
+list-remote-messages-label = List Global Messages
 serverlist-url-label = Serverlist URL
 
 # Characters page
@@ -87,3 +89,24 @@ bow-label = Bow
 tonfa-label = Tonfa
 switch-axe-label = Switch Axe
 magnetic-spike-label = Magnetic Spike
+
+# Launcher
+endpoint-name-empty = Server name must not be empty
+endpoint-host-empty = Server host must not be empty
+endpoint-unique = Server names must be unique
+file-error = Failed to manage files
+path-folder-error = Path must be a directory
+path-exists-error = The specified game folder does not exist
+current-endpoint-error = Unable to fetch data from selected server
+remote-endpoint-error = Unable to fetch remote servers
+remote-messages-error = Unable to fetch global messages
+launcher-network-error = Launcher failed to connect to launcher server
+patcher-network-error = Patcher failed to connect to patcher server
+patcher-file-error = Patcher failed to manage files in game folder
+internal-error = Launcher error, check logs
+
+# Remote
+username-error = Username does not exist
+password-error = Your password is incorrect
+username-exists-error = Username already exists
+username-password-empty-error = Username and password must not be empty

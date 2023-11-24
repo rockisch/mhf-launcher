@@ -18,15 +18,15 @@ A custom Monster Hunter Frontier launcher.
 - Multi-language support (currently EN and JP)
 - Allows you to download your character data
 - Allows servers to customize what icons and messages their users will see
+- Allows you to open multiple clients on the same machine (you probably shouldn't though!)
+- Automatic reauthentication when token expires
 - Allows you to connect to the [new patch server](https://github.com/rockisch/mhf-patch-server) if enabled on your host
-- Reauthentication when token expires (in-game auth can still expire)
-- Can use HTTPS to connect to launcher servers (in-game connections are still insecure)
+- Can use HTTPS to connect to the launcher and patch servers (in-game connections are still unnafected)
 - ...and much more!
 
 ## Planned Features
 
 - More styles! (PS4 Launcher, non-ZZ themes)
-- Game updater/patcher
 - More server-related 'commands' that are not supported in-game: Renaming character, save uploading, etc
   - These will _all_ be opt-in by the server host
 

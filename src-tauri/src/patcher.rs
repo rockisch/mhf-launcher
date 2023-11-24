@@ -2,7 +2,6 @@ use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 use log::{info, warn};
@@ -14,6 +13,9 @@ use tokio::select;
 use tokio_util::sync::CancellationToken;
 
 use crate::{server::PatcherResponse, LogPayload};
+
+pub const NETWORK_ERROR: &str = "patcher-network-error";
+pub const FILE_ERROR: &str = "patcher-file-error";
 
 const ETAG_FILE: &str = "patcher.etag";
 
@@ -72,7 +74,7 @@ fn get_changed_paths<'a>(
         .lines()
         .filter_map(|line| {
             let Some((patcher_hash, mut patcher_path)) = line.split_once('\t') else {
-                return Some(Err("Patcher server returned invalid data"));
+                return Some(Err(NETWORK_ERROR));
             };
             patcher_path = patcher_path.trim_start_matches('/');
             let client_path = game_folder.join(patcher_path);
@@ -97,7 +99,7 @@ fn get_changed_paths<'a>(
             Some(Ok(patcher_path))
         })
         .try_collect()
-        .or(Err("Failed to parse patcher server response"))
+        .or(Err(NETWORK_ERROR))
 }
 
 async fn download_changed_paths(
@@ -111,33 +113,26 @@ async fn download_changed_paths(
     let total = changed_paths.len();
     let mut current = 0;
     for changed_path in changed_paths {
-        tokio::time::sleep(Duration::from_secs(1)).await;
         let req = client
             .get(format!("{}/{}", patcher_url, changed_path))
             .send();
         let mut resp = select! {
             _ = cancel.cancelled() => return Ok(()),
-            resp = req => resp.or(Err("Patch server request failed"))?,
+            resp = req => resp.or(Err(NETWORK_ERROR))?,
         };
         let patcher_path = patcher_folder.join(changed_path);
-        fs::create_dir_all(
-            patcher_path
-                .parent()
-                .ok_or("Failed to get temp file parent")?,
-        )
-        .or(Err("Failed to create temp file parent"))?;
+        fs::create_dir_all(patcher_path.parent().ok_or(FILE_ERROR)?).or(Err(FILE_ERROR))?;
         let mut file = fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
             .open(patcher_path)
-            .or(Err("Failed to open temp file"))?;
+            .or(Err(FILE_ERROR))?;
         while let Some(chunk) = select! {
             _ = cancel.cancelled() => return Ok(()),
-            chunk = resp.chunk() => chunk.or(Err("Failed to read patcher response chunk"))?
+            chunk = resp.chunk() => chunk.or(Err(NETWORK_ERROR))?
         } {
-            file.write_all(&chunk)
-                .or(Err("Failed to write patcher response chunk to file"))?;
+            file.write_all(&chunk).or(Err(NETWORK_ERROR))?;
         }
         current += 1;
         send_event(window, total, current, State::Downloading);
@@ -153,14 +148,8 @@ fn move_changed_paths(
     for path in changed_paths {
         let source_path = source_folder.join(path);
         let target_path = target_folder.join(path);
-        fs::create_dir_all(
-            target_path
-                .parent()
-                .ok_or("Failed to get target file parent")?,
-        )
-        .or(Err("Failed to create target file parent"))?;
-        fs::rename(&source_path, &target_path)
-            .or(Err("Failed to move patched file to game folder"))?;
+        fs::create_dir_all(target_path.parent().ok_or(FILE_ERROR)?).or(Err(FILE_ERROR))?;
+        fs::rename(&source_path, &target_path).or(Err(FILE_ERROR))?;
     }
     Ok(())
 }
@@ -175,10 +164,8 @@ async fn patch_internal(
     cancel: CancellationToken,
 ) -> Result<(), &'static str> {
     send_event(window, 0, 0, State::Checking);
-    tokio::time::sleep(Duration::from_secs(1)).await;
     let changed_paths = get_changed_paths(&patcher_resp.content, game_folder)?;
     send_event(window, changed_paths.len(), 0, State::Downloading);
-    tokio::time::sleep(Duration::from_secs(1)).await;
     download_changed_paths(
         window,
         &client,
@@ -188,11 +175,9 @@ async fn patch_internal(
         cancel,
     )
     .await?;
-    tokio::time::sleep(Duration::from_secs(1)).await;
     send_event(window, 0, 0, State::Patching);
     move_changed_paths(&changed_paths, patcher_folder, game_folder)?;
     set_etag(game_folder, &patcher_resp.etag)?;
-    tokio::time::sleep(Duration::from_secs(1)).await;
     send_event(window, 0, 0, State::Done);
     Ok(())
 }
@@ -208,10 +193,10 @@ pub async fn patch(
     let tmp_folder = game_folder.join("tmp");
     if let Err(e) = fs::create_dir_all(&tmp_folder) {
         warn!("error creating patcher dir: {}", e);
-        send_error(&window, "Failed to create temp patcher directory");
+        send_error(&window, FILE_ERROR);
         return;
     }
-    if let Err(error) = patch_internal(
+    patch_internal(
         &window,
         client,
         patcher_url,
@@ -221,12 +206,10 @@ pub async fn patch(
         cancel,
     )
     .await
-    {
-        send_error(&window, error);
-    }
+    .unwrap_or_else(|e| send_error(&window, e));
     if let Err(e) = fs::remove_dir_all(&tmp_folder) {
         warn!("error deleting patcher dir: {}", e);
-        send_error(&window, "Failed to delete temp patcher directory");
+        send_error(&window, FILE_ERROR);
     }
 }
 
@@ -236,9 +219,9 @@ fn set_etag(game_folder: &Path, etag: &str) -> Result<(), &'static str> {
         .truncate(true)
         .create(true)
         .open(game_folder.join(ETAG_FILE))
-        .or(Err("Failed to open patcher etag file"))?
+        .or(Err(FILE_ERROR))?
         .write_all(etag.as_bytes())
-        .or(Err("Failed to write to patcher etag file"))?;
+        .or(Err(FILE_ERROR))?;
     Ok(())
 }
 

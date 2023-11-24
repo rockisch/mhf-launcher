@@ -9,7 +9,9 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 
-use crate::endpoint::Endpoint;
+use crate::{endpoint::Endpoint, patcher};
+
+const NETWORK_ERROR: &str = "launcher-network-error";
 
 pub enum Error {
     Cancellation,
@@ -22,6 +24,13 @@ impl Error {
         match self {
             Self::Cancellation => "".into(),
             Self::Server(_, msg) | Self::Backend(msg) => msg,
+        }
+    }
+
+    pub fn into_frontend_context(self, context: &str) -> String {
+        match self {
+            Self::Cancellation => "".into(),
+            Self::Server(_, msg) | Self::Backend(msg) => format!("{}: {}", context, msg),
         }
     }
 }
@@ -160,7 +169,7 @@ async fn send(request: RequestBuilder, cancel: CancellationToken) -> Result<Resp
     };
     let resp = resp.map_err(|e| {
         warn!("request connection failed: {}", e);
-        Error::Backend("Failed to connect to server".into())
+        Error::Backend(NETWORK_ERROR.into())
     })?;
     let status = resp.status().as_u16();
     if status >= 400 {
@@ -172,9 +181,9 @@ async fn send(request: RequestBuilder, cancel: CancellationToken) -> Result<Resp
             .map(|v| v.starts_with("text/plain"))
             .unwrap_or(false);
         let message = if is_text {
-            resp.text().await.unwrap_or("Server error".into())
+            resp.text().await.unwrap_or(NETWORK_ERROR.into())
         } else {
-            "Server error".into()
+            NETWORK_ERROR.into()
         };
         return Err(Error::Server(status, message));
     }
@@ -200,7 +209,7 @@ impl<T: DeserializeOwned> JsonRequest<T> {
         let resp = send(self.request, self.cancel).await?;
         resp.json().await.map_err(|e| {
             warn!("request parsing failed: {}", e);
-            Error::Backend("Failed to parse server response".into())
+            Error::Backend(NETWORK_ERROR.into())
         })
     }
 }
@@ -221,15 +230,11 @@ impl PatcherRequest {
             .headers()
             .get("ETag")
             .and_then(|v| v.to_str().ok())
-            .ok_or(Error::Server(
-                status,
-                "Patch server did not return a valid Etag header".into(),
-            ))?
+            .ok_or(Error::Server(status, patcher::NETWORK_ERROR.into()))?
             .to_owned();
-        println!("SERVER ETAG: {}", etag);
         let content = resp.text().await.map_err(|e| {
             warn!("failed to read body of patcher request {}", e);
-            Error::Server(status, "Failed to parse patcher server response".into())
+            Error::Server(status, patcher::NETWORK_ERROR.into())
         })?;
         Ok(Some(PatcherResponse { etag, content }))
     }
@@ -249,7 +254,7 @@ pub fn launcher_request(
     cancel: CancellationToken,
     endpoint: &Endpoint,
 ) -> JsonRequest<LauncherResponse> {
-    let req = client.get(endpoint.url("/launcher"));
+    let req = client.get(endpoint.get_url("/launcher"));
     JsonRequest::new(req, cancel)
 }
 
@@ -261,7 +266,7 @@ pub fn login_request(
     password: &str,
 ) -> JsonRequest<AuthResponse> {
     let user_request = UserRequest { username, password };
-    let req = client.post(endpoint.url("/login")).json(&user_request);
+    let req = client.post(endpoint.get_url("/login")).json(&user_request);
     JsonRequest::new(req, cancel)
 }
 
@@ -273,7 +278,9 @@ pub fn register_request(
     password: &str,
 ) -> JsonRequest<AuthResponse> {
     let user_request = UserRequest { username, password };
-    let req = client.post(endpoint.url("register")).json(&user_request);
+    let req = client
+        .post(endpoint.get_url("/register"))
+        .json(&user_request);
     JsonRequest::new(req, cancel)
 }
 
@@ -289,7 +296,7 @@ pub fn delete_character_request(
         char_id: character_id,
     };
     let req = client
-        .post(endpoint.url("/character/delete"))
+        .post(endpoint.get_url("/character/delete"))
         .json(&delete_request);
     JsonRequest::new(req, cancel)
 }
@@ -302,7 +309,7 @@ pub fn create_character_request(
 ) -> JsonRequest<CharacterData> {
     let token_req = TokenRequest { token };
     let req = client
-        .post(endpoint.url("/character/create"))
+        .post(endpoint.get_url("/character/create"))
         .json(&token_req);
     JsonRequest::new(req, cancel)
 }
@@ -319,7 +326,7 @@ pub fn export_save_request(
         char_id: character_id,
     };
     let req = client
-        .post(endpoint.url("/character/export"))
+        .post(endpoint.get_url("/character/export"))
         .json(&export_request);
     JsonRequest::new(req, cancel)
 }
@@ -330,7 +337,6 @@ pub fn patcher_request(
     url: &str,
     client_etag: &str,
 ) -> PatcherRequest {
-    println!("CLIENT ETAG: {}", client_etag);
     let request = client
         .get(format!("{}/check", url))
         .header("If-None-Match", client_etag);

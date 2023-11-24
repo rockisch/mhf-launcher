@@ -11,6 +11,7 @@ mod endpoint;
 mod patcher;
 mod server;
 mod store;
+mod user;
 
 use std::{
     collections::HashMap,
@@ -30,11 +31,10 @@ use tauri::{Manager, Window};
 use tauri_plugin_log::LogTarget;
 use tauri_plugin_store::StoreBuilder;
 use tokio_util::sync::CancellationToken;
+use user::{UserData, UserManager};
 
 use crate::config::{CLASSIC_STYLE, DEFAULT_MESSAGELIST_URL, DEFAULT_SERVERLIST_URL, MODERN_STYLE};
 use crate::endpoint::{Endpoint, EndpointConfig, EndpointVecExt};
-
-const APP_NAME: &str = "mhf-launcher";
 
 enum ExitSignal {
     RunGame(u32, bool),
@@ -55,9 +55,7 @@ struct TauriStateSync {
     remote_endpoints: Vec<Endpoint>,
     remote_endpoints_config: HashMap<String, EndpointConfig>,
     current_endpoint: Endpoint,
-    username: String,
-    password: String,
-    remember_me: bool,
+    user_manager: UserManager,
     game_folder: Option<PathBuf>,
     last_char_id: Option<u32>,
     serverlist_url: String,
@@ -92,24 +90,22 @@ impl TauriStateSync {
 
     fn ensure_current_endpoint(&mut self) -> Result<(), &'static str> {
         let endpoints = if self.current_endpoint.is_remote {
-            &self.endpoints
-        } else {
             &self.remote_endpoints
+        } else {
+            &self.endpoints
         };
 
         self.current_endpoint = endpoints
             .iter()
             .find(|&e| e == &self.current_endpoint)
             .or_else(|| self.first_endpoint())
-            .ok_or("Unable to get a valid current endpoint")?
+            .ok_or("internal-error")?
             .clone();
         Ok(())
     }
 
     fn auth_resp_err(&self) -> Result<&AuthResponse, &str> {
-        self.auth_resp
-            .as_ref()
-            .ok_or("Authentication data is not set")
+        self.auth_resp.as_ref().ok_or("internal-error")
     }
 
     fn effective_folder(&self) -> PathBuf {
@@ -173,32 +169,27 @@ struct InitialDataPayload {
     current_folder: PathBuf,
     last_char_id: Option<u32>,
     serverlist_url: String,
+    messagelist_url: String,
 }
 
 #[tauri::command]
 async fn initial_data(state: tauri::State<'_, TauriState>) -> Result<InitialDataPayload, ()> {
     let state_sync = state.state_sync.lock().await;
+    let (userdata, password) = state_sync.user_manager.get(&state_sync.current_endpoint);
     Ok(InitialDataPayload {
         style: state_sync.style,
         endpoints: state_sync.endpoints.clone(),
         remote_endpoints: state_sync.remote_endpoints.clone(),
         current_endpoint: state_sync.current_endpoint.clone(),
-        username: if state_sync.remember_me {
-            state_sync.username.clone()
-        } else {
-            "".into()
-        },
-        password: if state_sync.remember_me {
-            state_sync.password.clone()
-        } else {
-            "".into()
-        },
-        remember_me: state_sync.remember_me,
+        username: userdata.username,
+        password,
+        remember_me: userdata.remember_me,
         game_folder: state_sync.game_folder.clone(),
         current_folder: std::env::current_dir().unwrap(),
         locale: state_sync.locale.clone(),
         last_char_id: state_sync.last_char_id,
         serverlist_url: state_sync.serverlist_url.clone(),
+        messagelist_url: state_sync.messagelist_url.clone(),
     })
 }
 
@@ -266,6 +257,13 @@ async fn set_remote_endpoints(
     Ok(state_sync.current_endpoint.clone())
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct UserDataPayload {
+    userdata: UserData,
+    password: String,
+}
+
 #[tauri::command]
 async fn set_current_endpoint(
     window: Window,
@@ -284,6 +282,10 @@ async fn set_current_endpoint(
         }
         state_sync.launcher_resp = None;
         state_sync.current_endpoint = current_endpoint.clone();
+        let (userdata, password) = state_sync.user_manager.get(&state_sync.current_endpoint);
+        window
+            .emit("userdata", UserDataPayload { userdata, password })
+            .unwrap_or_else(|e| warn!("failed to emit message: {}", e));
         if !state_sync.contains_endpoint(&current_endpoint) {
             let payload = if current_endpoint.is_remote {
                 state_sync
@@ -308,7 +310,7 @@ async fn set_current_endpoint(
         }
         state_sync
             .store
-            .with(|s| s.set("current_endpoint", current_endpoint));
+            .with(|s| s.set("current_endpoint", current_endpoint.clone()));
         server::launcher_request(
             &state.client,
             state_sync.cancel_launcher.clone(),
@@ -330,7 +332,9 @@ async fn set_game_folder(
     let game_folder = game_folder.map(PathBuf::from);
     if let Some(f) = game_folder.as_ref() {
         if !f.is_dir() {
-            return Err("Path must be a directory".into());
+            return Err("path-folder-error".into());
+        } else if !f.exists() {
+            return Err("path-exists-error".into());
         }
     }
     state_sync.game_folder = game_folder.clone();
@@ -389,6 +393,36 @@ async fn set_serverlist_url(
     Ok(())
 }
 
+#[tauri::command]
+async fn set_messagelist_url(
+    window: Window,
+    state: tauri::State<'_, TauriState>,
+    messagelist_url: String,
+) -> Result<(), String> {
+    info!("messagelisturl: {}", messagelist_url);
+    if !messagelist_url.is_empty() {
+        let req = {
+            let mut state_sync = state.state_sync.lock().await;
+            if messagelist_url == state_sync.messagelist_url {
+                return Ok(());
+            }
+            state_sync.cancel_messagelist.cancel();
+            state_sync.cancel_messagelist = CancellationToken::new();
+            server::simple_request(
+                &state.client,
+                state_sync.cancel_messagelist.clone(),
+                &messagelist_url,
+            )
+        };
+        handle_remote_messages(&window, req).await;
+    }
+    let mut state_sync = state.state_sync.lock().await;
+    state_sync
+        .store
+        .with(|s| s.set("messagelist_url", messagelist_url));
+    Ok(())
+}
+
 async fn auth(
     state: tauri::State<'_, TauriState>,
     username: String,
@@ -411,26 +445,21 @@ async fn auth(
     } else {
         None
     };
-    let mut state_sync = state.state_sync.lock().await;
-    state_sync.username = username.clone();
-    state_sync.password = password.clone();
+    let state_sync = &mut *state.state_sync.lock().await;
     state_sync.auth_resp = Some(auth_resp.clone());
     let has_patch = patcher_resp.is_some();
     state_sync.patcher_resp = patcher_resp;
-    state_sync.store.with(|s| {
-        if remember_me {
-            s.set("username", &username);
-            if let Err(e) = keyring::Entry::new(APP_NAME, &username)
-                .and_then(|entry| entry.set_password(&password))
-            {
-                warn!("failed to save password: {}", e)
-            }
-        } else {
-            s.del("username");
-            _ = keyring::Entry::new(APP_NAME, &username).and_then(|entry| entry.delete_password());
-        }
-        s.set("remember_me", remember_me);
-    });
+    state_sync.user_manager.set(
+        &state_sync.current_endpoint,
+        UserData {
+            username,
+            remember_me,
+        },
+        password,
+    );
+    state_sync
+        .store
+        .with(|s| s.set("user_manager", &state_sync.user_manager));
     Ok(AuthPayload {
         response: auth_resp,
         has_patch,
@@ -446,6 +475,9 @@ async fn login(
 ) -> Result<AuthPayload, String> {
     let auth_req = {
         let mut state_sync = state.state_sync.lock().await;
+        if username.is_empty() || password.is_empty() {
+            return Err("username-password-empty-error".into());
+        }
         state_sync.cancel_shared.cancel();
         state_sync.cancel_shared = CancellationToken::new();
         server::login_request(
@@ -468,6 +500,9 @@ async fn register(
 ) -> Result<AuthPayload, String> {
     let auth_req = {
         let mut state_sync = state.state_sync.lock().await;
+        if username.is_empty() || password.is_empty() {
+            return Err("username-password-empty-error".into());
+        }
         state_sync.cancel_shared.cancel();
         state_sync.cancel_shared = CancellationToken::new();
         server::register_request(
@@ -486,12 +521,13 @@ async fn reauth(state: &mut tauri::State<'_, TauriState>) -> Result<(), String> 
         let mut state_sync = state.state_sync.lock().await;
         state_sync.cancel_shared.cancel();
         state_sync.cancel_shared = CancellationToken::new();
+        let (userdata, password) = state_sync.user_manager.get(&state_sync.current_endpoint);
         server::login_request(
             &state.client,
             state_sync.cancel_shared.clone(),
             &state_sync.current_endpoint,
-            &state_sync.username,
-            &state_sync.password,
+            &userdata.username,
+            &password,
         )
     };
     let data = req.send().await.map_err(|e| e.into_frontend())?;
@@ -545,7 +581,7 @@ async fn create_character(
     });
     window.close().map_err(|e| {
         error!("failed to close window: {}", e);
-        "Failed to close window"
+        "internal-error"
     })?;
     Ok(())
 }
@@ -563,7 +599,7 @@ async fn select_character(
     });
     window.close().map_err(|e| {
         error!("failed to close window: {}", e);
-        "Failed to close window"
+        "internal-error"
     })?;
     Ok(())
 }
@@ -639,15 +675,15 @@ async fn export_character(
     let path = Path::new(&folder_name);
     path.parent()
         .and_then(|p| std::fs::create_dir_all(p).ok())
-        .ok_or("Failed to create parent folder")?;
+        .ok_or("file-error")?;
     File::options()
         .write(true)
         .create(true)
         .open(path)
         .ok()
         .and_then(|f| serde_json::to_writer_pretty(f, &data).ok())
-        .ok_or("Failed to create save file")?;
-    path::absolute(path).or(Err("Unable to get absolute path for exported file".into()))
+        .ok_or("file-error")?;
+    path::absolute(path).or(Err("file-error".into()))
 }
 
 #[tauri::command]
@@ -664,7 +700,7 @@ async fn patcher_start(window: Window, state: tauri::State<'_, TauriState>) -> R
         )
     };
     let Some(patcher_resp) = patcher_resp else {
-        return Err("Patcher initialized before completing patcher request".into());
+        return Err("internal-error".into());
     };
     let _client = state.client.clone();
     tauri::async_runtime::spawn(patcher::patch(
@@ -709,7 +745,7 @@ async fn handle_remote_endpoints(
         Err(e) => {
             warn!("failed to fetch remote servers: {}", e);
             window
-                .emit("log", LogPayload::warning("Unable to fetch remote servers"))
+                .emit("log", LogPayload::warning("remote-endpoint-error"))
                 .unwrap_or_else(|e| warn!("failed to emit message: {}", e));
             return;
         }
@@ -739,202 +775,214 @@ async fn handle_remote_endpoints(
 
 async fn handle_remote_messages(window: &Window, req: server::JsonRequest<Vec<MessageData>>) {
     match req.send().await {
-        Ok(messages) => window.emit("messages", messages),
+        Ok(messages) => {
+            info!("got: {:?}", messages);
+            window.emit("messages", messages)
+        }
         Err(e) => {
             warn!("failed to fetch global messages: {}", e);
-            window.emit(
-                "log",
-                LogPayload::warning("Unable to fetch global messages"),
-            )
+            window.emit("log", LogPayload::warning("remote-messages-error"))
         }
     }
     .unwrap_or_else(|e| warn!("failed to emit message: {}", e));
 }
 
 fn main() {
-    let (config, run) = {
-        let default_endpoints = config::get_default_endpoints();
-        let current_endpoint = default_endpoints[0].clone();
-        let state_sync = Arc::new(Mutex::new(TauriStateSync {
-            remote_endpoints: default_endpoints,
-            current_endpoint,
-            locale: "en".into(),
-            serverlist_url: DEFAULT_SERVERLIST_URL.into(),
-            messagelist_url: DEFAULT_MESSAGELIST_URL.into(),
-            ..Default::default()
-        }));
-        let mut app = tauri::Builder::default()
-            .plugin(tauri_plugin_store::Builder::default().build())
-            .plugin(
-                tauri_plugin_log::Builder::default()
-                    .targets([LogTarget::LogDir, LogTarget::Stdout, LogTarget::Webview])
-                    .build(),
-            )
-            .manage(TauriState {
-                client: reqwest::ClientBuilder::new().gzip(true).build().unwrap(),
-                state_sync: state_sync.clone(),
-            })
-            .setup(|app| {
-                let mut window = app.get_window("main").unwrap();
-                window.hide().unwrap();
-                let state: tauri::State<'_, TauriState> = app.state();
-                let mut store = StoreBuilder::new(app.handle(), "config.json".parse()?).build();
-                let state_sync = &mut *state.state_sync.blocking_lock();
-                match &mut store.load() {
-                    Ok(_) => {
-                        store::get(&store, "style", &mut state_sync.style);
-                        store::get(&store, "locale", &mut state_sync.locale);
-                        store::get(&store, "endpoints", &mut state_sync.endpoints);
-                        store::get(
-                            &store,
-                            "remote_endpoints_config",
-                            &mut state_sync.remote_endpoints_config,
-                        );
-                        store::get(&store, "current_endpoint", &mut state_sync.current_endpoint);
-                        store::get(&store, "username", &mut state_sync.username);
-                        store::get(&store, "remember_me", &mut state_sync.remember_me);
-                        store::get(&store, "game_folder", &mut state_sync.game_folder);
-                        store::get(&store, "last_char_id", &mut state_sync.last_char_id);
-                        store::get(&store, "serverlist_url", &mut state_sync.serverlist_url);
-                        store::get(&store, "messagelist_url", &mut state_sync.messagelist_url);
-                        if !state_sync.username.is_empty() {
-                            match keyring::Entry::new(APP_NAME, &state_sync.username)
-                                .and_then(|entry| entry.get_password())
-                            {
-                                Ok(password) => state_sync.password = password,
-                                Err(e) => warn!("failed to get user password: {}", e),
-                            }
-                        }
-                        state_sync
-                            .remote_endpoints
-                            .apply_config(&state_sync.remote_endpoints_config);
-                        handle_style(&mut window, state_sync.style);
-                    }
-                    Err(e) => info!("unable to load config from disk: {}", e),
-                }
-                state_sync.store = StoreHelper::new(store);
-                window.show().unwrap();
-                if !state_sync.serverlist_url.is_empty() {
-                    let endpoints_req = server::simple_request(
-                        &state.client,
-                        state_sync.cancel_serverlist.clone(),
-                        &state_sync.serverlist_url,
-                    );
-                    let state_sync_mutex = state.state_sync.clone();
-                    let window = window.clone();
-                    tauri::async_runtime::spawn(async move {
-                        handle_remote_endpoints(&window, endpoints_req, state_sync_mutex).await
-                    });
-                }
-                if !state_sync.messagelist_url.is_empty() {
-                    let messages_req = server::simple_request(
-                        &state.client,
-                        state_sync.cancel_messagelist.clone(),
-                        &state_sync.messagelist_url,
-                    );
-                    let window = window.clone();
-                    tauri::async_runtime::spawn(async move {
-                        handle_remote_messages(&window, messages_req).await
-                    });
-                }
-                Ok(())
-            })
-            .invoke_handler(tauri::generate_handler![
-                initial_data,
-                set_style,
-                set_locale,
-                set_endpoints,
-                set_remote_endpoints,
-                set_current_endpoint,
-                set_game_folder,
-                set_serverlist_url,
-                login,
-                register,
-                create_character,
-                select_character,
-                delete_character,
-                export_character,
-                patcher_start,
-                patcher_stop,
-            ])
-            .build(tauri::generate_context!())
-            .expect("error while building tauri application");
-        loop {
-            let iteration = app.run_iteration();
-            if iteration.window_count == 0 {
-                break;
+    // Log plugin has an issue where it cannot be initialized twice.
+    let mut log_plugin_initial = Some(
+        tauri_plugin_log::Builder::default()
+            .targets([LogTarget::LogDir, LogTarget::Stdout, LogTarget::Webview])
+            .build(),
+    );
+    loop {
+        let (config, run) = {
+            let default_endpoints = config::get_default_endpoints();
+            let current_endpoint = default_endpoints[0].clone();
+            let state_sync = Arc::new(Mutex::new(TauriStateSync {
+                remote_endpoints: default_endpoints,
+                current_endpoint,
+                locale: "en".into(),
+                serverlist_url: DEFAULT_SERVERLIST_URL.into(),
+                messagelist_url: DEFAULT_MESSAGELIST_URL.into(),
+                ..Default::default()
+            }));
+            let mut builder =
+                tauri::Builder::default().plugin(tauri_plugin_store::Builder::default().build());
+            if let Some(log_plugin) = log_plugin_initial.take() {
+                builder = builder.plugin(log_plugin);
             }
-        }
-        tauri::api::process::kill_children();
-
-        let state_sync = state_sync.blocking_lock();
-        if let Some(ExitSignal::RunGame(char_id, char_new)) = state_sync.exit_reason {
-            let auth_resp = state_sync.auth_resp.as_ref().unwrap();
-            let char = auth_resp
-                .characters
-                .iter()
-                .find(|c| c.id == char_id)
-                .unwrap();
-            let char_ids = auth_resp.characters.iter().map(|c| c.id).collect();
-            let notices = auth_resp
-                .notices
-                .iter()
-                .map(|n| mhf_iel::Notice {
-                    flags: 0,
-                    data: n.clone(),
+            let mut app = builder
+                .manage(TauriState {
+                    client: reqwest::ClientBuilder::new().gzip(true).build().unwrap(),
+                    state_sync: state_sync.clone(),
                 })
-                .collect();
-            let mut config = MhfConfig {
-                char_id,
-                char_name: char.name.clone(),
-                char_gr: char.gr,
-                char_hr: char.hr,
-                char_ids,
-                char_new,
-                user_token: auth_resp.user.token.clone(),
-                user_name: state_sync.username.clone(),
-                user_password: state_sync.password.clone(),
-                user_rights: auth_resp.user.rights,
-                server_host: state_sync.current_endpoint.host.clone(),
-                server_port: state_sync.current_endpoint.game_port.unwrap_or(53310) as u32,
-                entrance_count: auth_resp.entrance_count,
-                current_ts: auth_resp.current_ts,
-                expiry_ts: auth_resp.expiry_ts,
-                notices,
-                mez_event_id: 0,
-                mez_start: 0,
-                mez_end: 0,
-                mez_solo_tickets: 0,
-                mez_group_tickets: 0,
-                mez_stalls: vec![],
-                mhf_flags: None,
-
-                mhf_folder: state_sync
-                    .current_endpoint
-                    .game_folder
-                    .as_ref()
-                    .or_else(|| state_sync.game_folder.as_ref())
-                    .cloned(),
-            };
-            if let Some(mez_fes) = auth_resp.mez_fez.as_ref() {
-                config.mez_event_id = mez_fes.id;
-                config.mez_start = mez_fes.start;
-                config.mez_end = mez_fes.end;
-                config.mez_solo_tickets = mez_fes.solo_tickets;
-                config.mez_group_tickets = mez_fes.group_tickets;
-                config.mez_stalls = mez_fes
-                    .stalls
-                    .iter()
-                    .map(|&s| mhf_iel::MezFesStall::try_from(s).unwrap())
-                    .collect();
+                .setup(|app| {
+                    let mut window = app.get_window("main").unwrap();
+                    window.hide().unwrap();
+                    let state: tauri::State<'_, TauriState> = app.state();
+                    let mut store = StoreBuilder::new(app.handle(), "config.json".parse()?).build();
+                    let state_sync = &mut *state.state_sync.blocking_lock();
+                    match &mut store.load() {
+                        Ok(_) => {
+                            store::get(&store, "style", &mut state_sync.style);
+                            store::get(&store, "locale", &mut state_sync.locale);
+                            store::get(&store, "endpoints", &mut state_sync.endpoints);
+                            store::get(
+                                &store,
+                                "remote_endpoints_config",
+                                &mut state_sync.remote_endpoints_config,
+                            );
+                            store::get(
+                                &store,
+                                "current_endpoint",
+                                &mut state_sync.current_endpoint,
+                            );
+                            store::get(&store, "user_manager", &mut state_sync.user_manager);
+                            store::get(&store, "game_folder", &mut state_sync.game_folder);
+                            store::get(&store, "last_char_id", &mut state_sync.last_char_id);
+                            store::get(&store, "serverlist_url", &mut state_sync.serverlist_url);
+                            store::get(&store, "messagelist_url", &mut state_sync.messagelist_url);
+                            state_sync
+                                .remote_endpoints
+                                .apply_config(&state_sync.remote_endpoints_config);
+                            handle_style(&mut window, state_sync.style);
+                        }
+                        Err(e) => info!("unable to load config from disk: {}", e),
+                    }
+                    state_sync.store = StoreHelper::new(store);
+                    window.show().unwrap();
+                    if !state_sync.serverlist_url.is_empty() {
+                        let endpoints_req = server::simple_request(
+                            &state.client,
+                            state_sync.cancel_serverlist.clone(),
+                            &state_sync.serverlist_url,
+                        );
+                        let state_sync_mutex = state.state_sync.clone();
+                        let window = window.clone();
+                        tauri::async_runtime::spawn(async move {
+                            handle_remote_endpoints(&window, endpoints_req, state_sync_mutex).await
+                        });
+                    }
+                    if !state_sync.messagelist_url.is_empty() {
+                        let messages_req = server::simple_request(
+                            &state.client,
+                            state_sync.cancel_messagelist.clone(),
+                            &state_sync.messagelist_url,
+                        );
+                        let window = window.clone();
+                        tauri::async_runtime::spawn(async move {
+                            handle_remote_messages(&window, messages_req).await
+                        });
+                    }
+                    Ok(())
+                })
+                .invoke_handler(tauri::generate_handler![
+                    initial_data,
+                    set_style,
+                    set_locale,
+                    set_endpoints,
+                    set_remote_endpoints,
+                    set_current_endpoint,
+                    set_game_folder,
+                    set_serverlist_url,
+                    set_messagelist_url,
+                    login,
+                    register,
+                    create_character,
+                    select_character,
+                    delete_character,
+                    export_character,
+                    patcher_start,
+                    patcher_stop,
+                ])
+                .build(tauri::generate_context!())
+                .expect("error while building tauri application");
+            loop {
+                let iteration = app.run_iteration();
+                if iteration.window_count == 0 {
+                    break;
+                }
             }
-            (config, true)
+            tauri::api::process::kill_children();
+
+            let state_sync = state_sync.blocking_lock();
+            if let Some(ExitSignal::RunGame(char_id, char_new)) = state_sync.exit_reason {
+                let auth_resp = state_sync.auth_resp.as_ref().unwrap();
+                let char = auth_resp
+                    .characters
+                    .iter()
+                    .find(|c| c.id == char_id)
+                    .unwrap();
+                let char_ids = auth_resp.characters.iter().map(|c| c.id).collect();
+                let notices = auth_resp
+                    .notices
+                    .iter()
+                    .map(|n| mhf_iel::Notice {
+                        flags: 0,
+                        data: n.clone(),
+                    })
+                    .collect();
+                let (userdata, password) =
+                    state_sync.user_manager.get(&state_sync.current_endpoint);
+
+                let mut config = MhfConfig {
+                    char_id,
+                    char_name: char.name.clone(),
+                    char_gr: char.gr,
+                    char_hr: char.hr,
+                    char_ids,
+                    char_new,
+                    user_token: auth_resp.user.token.clone(),
+                    user_name: userdata.username,
+                    user_password: password,
+                    user_rights: auth_resp.user.rights,
+                    server_host: state_sync.current_endpoint.host(),
+                    server_port: state_sync.current_endpoint.game_port.unwrap_or(53310) as u32,
+                    entrance_count: auth_resp.entrance_count,
+                    current_ts: auth_resp.current_ts,
+                    expiry_ts: auth_resp.expiry_ts,
+                    notices,
+                    mez_event_id: 0,
+                    mez_start: 0,
+                    mez_end: 0,
+                    mez_solo_tickets: 0,
+                    mez_group_tickets: 0,
+                    mez_stalls: vec![],
+                    mhf_flags: None,
+                    version: state_sync.current_endpoint.version,
+
+                    mhf_folder: state_sync
+                        .current_endpoint
+                        .game_folder
+                        .as_ref()
+                        .or_else(|| state_sync.game_folder.as_ref())
+                        .cloned(),
+                };
+                if let Some(mez_fes) = auth_resp.mez_fez.as_ref() {
+                    config.mez_event_id = mez_fes.id;
+                    config.mez_start = mez_fes.start;
+                    config.mez_end = mez_fes.end;
+                    config.mez_solo_tickets = mez_fes.solo_tickets;
+                    config.mez_group_tickets = mez_fes.group_tickets;
+                    config.mez_stalls = mez_fes
+                        .stalls
+                        .iter()
+                        .map(|&s| mhf_iel::MezFesStall::try_from(s).unwrap())
+                        .collect();
+                }
+                (config, true)
+            } else {
+                (MhfConfig::default(), false)
+            }
+        };
+        if run {
+            match mhf_iel::run(config).unwrap() {
+                102 => {}
+                code => info!("exited with code {}", code),
+            };
         } else {
-            (MhfConfig::default(), false)
+            break;
         }
-    };
-    if run {
-        mhf_iel::run(config).unwrap();
     }
     info!("app exit");
 }

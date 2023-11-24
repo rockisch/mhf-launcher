@@ -8,25 +8,34 @@ import {
   storeMut,
   initStore,
   initRemoteEndpoints,
+  updateMessages,
   updatePatcher,
   logText,
 } from "./store";
 import ClassicLauncher from "./classic/Launcher.vue";
 import ModernLauncher from "./modern/Launcher.vue";
 import { MODERN_STYLE, CLASSIC_STYLE } from "./common";
+import { logMessage } from "./store";
 
 const initialLoaded = ref(false);
 
 initStore().then(() => (initialLoaded.value = true));
+listen("userdata", ({ payload }) => {
+  storeMut.username = payload.userdata.username;
+  storeMut.password = payload.password;
+  storeMut.rememberMe = payload.userdata.rememberMe;
+});
 listen("endpoints", ({ payload }) => {
   initRemoteEndpoints(payload);
 });
-listen("messages", ({ payload }) => {});
+listen("messages", ({ payload }) => {
+  updateMessages(payload);
+});
 listen("patcher", ({ payload }) => {
   updatePatcher(payload);
 });
 listen("log", ({ payload }) => {
-  logText(payload.level, payload.message);
+  logMessage(payload.level, payload.message);
 });
 </script>
 

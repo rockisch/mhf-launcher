@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
@@ -10,11 +10,12 @@ pub struct EndpointConfig {
 #[derive(Default, Debug, Serialize, Deserialize, Clone, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct Endpoint {
+    pub url: String,
     pub name: String,
-    pub host: String,
     pub launcher_port: Option<u16>,
     pub game_port: Option<u16>,
     pub game_folder: Option<PathBuf>,
+    pub version: mhf_iel::MhfVersion,
     #[serde(default)]
     pub is_remote: bool,
 }
@@ -26,12 +27,19 @@ impl PartialEq for Endpoint {
 }
 
 impl Endpoint {
-    pub fn url(&self, path: &str) -> String {
+    pub fn host(&self) -> String {
+        reqwest::Url::from_str(&self.url)
+            .ok()
+            .and_then(|u| u.host().map(|h| h.to_string()))
+            .unwrap_or(self.url.to_owned())
+    }
+
+    pub fn get_url(&self, path: &str) -> String {
         let port = self.launcher_port.unwrap_or(8080);
-        if self.host.contains("://") {
-            format!("{}:{}{}", self.host, port, path)
+        if self.url.contains("://") {
+            format!("{}:{}{}", self.url, port, path)
         } else {
-            format!("http://{}:{}{}", self.host, port, path)
+            format!("http://{}:{}{}", self.url, port, path)
         }
     }
 }
@@ -47,16 +55,15 @@ impl EndpointVecExt for Vec<Endpoint> {
     fn check_valid(&self) -> Result<(), &'static str> {
         for endpoint in self {
             if endpoint.name.is_empty() {
-                return Err("Server name must not be empty");
-            } else if endpoint.host.is_empty() {
-                return Err("Server host must not be empty");
+                return Err("endpoint-name-empty");
+            } else if endpoint.url.is_empty() {
+                return Err("endpoint-host-empty");
             } else if self.iter().filter(|e| e.name == endpoint.name).count() > 1 {
-                return Err("Server names must be unique");
+                return Err("endpoint-unique");
             }
             if let Some(game_folder) = endpoint.game_folder.as_ref() {
                 if !game_folder.exists() {
-                    println!("{:?}", game_folder);
-                    return Err("The specified game folder does not exist");
+                    return Err("path-exists-error");
                 }
             }
         }
@@ -66,7 +73,7 @@ impl EndpointVecExt for Vec<Endpoint> {
     fn extend_valid(&mut self, other: Self) {
         self.reserve(other.len());
         for endpoint in other {
-            if !endpoint.name.is_empty() && !endpoint.host.is_empty() && !self.contains(&endpoint) {
+            if !endpoint.name.is_empty() && !endpoint.url.is_empty() && !self.contains(&endpoint) {
                 self.push(endpoint)
             }
         }

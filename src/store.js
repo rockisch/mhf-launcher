@@ -17,6 +17,7 @@ import {
   ERROR_PATCHER,
   DOWNLOADING_PATCHER,
   PATCHING_PATCHER,
+  GAME_VERSIONS,
 } from "./common";
 
 const storePrivate = reactive({
@@ -27,9 +28,10 @@ const storePrivate = reactive({
   lastCharId: null,
 
   banners: [],
-  messages: [],
   links: [],
   characters: [],
+  messages: [],
+  remoteMessages: [],
 
   authLoading: false,
   characterLoading: false,
@@ -62,6 +64,7 @@ export const storeMut = reactive({
   gameFolder: "",
   editEndpoint: null,
   serverlistUrl: "",
+  messagelistUrl: "",
 });
 
 export function logText(level, text) {
@@ -117,6 +120,10 @@ export function onSettingsButton() {
   }
 }
 
+export function updateMessages(messages) {
+  storePrivate.remoteMessages = messages;
+}
+
 export function updatePatcher(patcher) {
   storePrivate.patcher = patcher;
   if (patcher.state === DONE_PATCHER) {
@@ -126,11 +133,6 @@ export function updatePatcher(patcher) {
   }
 }
 export const patcherPercentage = computed(() => {
-  console.log(
-    storePrivate.patcher.current,
-    storePrivate.patcher.total,
-    storePrivate.patcher.current / (storePrivate.patcher.total || 1)
-  );
   switch (storePrivate.patcher.state) {
     case CHECKING_PATCHER:
       return 0;
@@ -155,22 +157,15 @@ export const patcherLog = computed(() => {
   }
 });
 
-function handleInvokeError(error, msg, msgArgs, level) {
-  if (error !== "") {
-    level = level || "error";
-    if (msg) {
-      logMessage(level, msg, { ...(msgArgs || {}), error });
-    } else {
-      logText(level, error);
-    }
-  }
-  throw error;
-}
-async function handleInvoke(cmd, args, msg, msgArgs) {
+async function handleInvoke(cmd, args, level) {
   try {
     return await invoke(cmd, args);
   } catch (error) {
-    handleInvokeError(error, msg, msgArgs);
+    if (error !== "") {
+      level = level || "error";
+      logMessage(level, error);
+    }
+    throw error;
   }
 }
 watch(
@@ -203,6 +198,11 @@ watch(
   async (serverlistUrl) =>
     await handleInvoke("set_serverlist_url", { serverlistUrl })
 );
+watch(
+  () => storeMut.messagelistUrl,
+  async (messagelistUrl) =>
+    await handleInvoke("set_messagelist_url", { messagelistUrl })
+);
 
 export const effectiveFolder = computed(
   () => storeMut.gameFolder || storePrivate.currentFolder
@@ -217,6 +217,7 @@ export async function initStore() {
   storeMut.rememberMe = data.rememberMe;
   storeMut.gameFolder = data.gameFolder;
   storeMut.serverlistUrl = data.serverlistUrl;
+  storeMut.messagelistUrl = data.messagelistUrl;
   storePrivate.endpoints = data.endpoints;
   storePrivate.remoteEndpoints = data.remoteEndpoints;
   storePrivate.currentEndpoint = data.currentEndpoint;
@@ -269,6 +270,7 @@ export function dialogAddEndpoint() {
     launcherPort: null,
     gamePort: null,
     gamePath: null,
+    version: GAME_VERSIONS[0],
   };
   storePrivate.editEndpointNew = true;
   storePrivate.dialogKind = SERVERS_DIALOG;
@@ -367,8 +369,7 @@ export async function setCurrentEndpoint(currentEndpoint) {
     let data = await handleInvoke(
       "set_current_endpoint",
       { currentEndpoint },
-      "server-select-error",
-      { server: storePrivate.currentEndpoint.name }
+      "warning"
     );
     storePrivate.banners = data.banners;
     storePrivate.messages = data.messages;
@@ -406,15 +407,15 @@ async function doAuth(kind, message) {
   }
 }
 export async function doLogin() {
-  await doAuth("login", "login-error");
+  await doAuth("login");
 }
 export async function doRegister() {
-  await doAuth("register", "register-error");
+  await doAuth("register");
 }
 export async function doCreateCharacter() {
   storePrivate.characterLoading = true;
   try {
-    await handleInvoke("create_character", null, "create-character-error");
+    await handleInvoke("create_character");
   } finally {
     storePrivate.characterLoading = false;
   }
@@ -430,11 +431,7 @@ export async function doSelectCharacter(characterId) {
 export async function doDeleteCharacter(characterId) {
   storePrivate.characterLoading = true;
   try {
-    await handleInvoke(
-      "delete_character",
-      { characterId },
-      "delete-character-error"
-    );
+    await handleInvoke("delete_character", { characterId });
     storePrivate.characters = storePrivate.characters.filter(
       (c) => c.id !== characterId
     );
@@ -445,11 +442,7 @@ export async function doDeleteCharacter(characterId) {
 export async function doExportCharacter(characterId) {
   storePrivate.characterLoading = true;
   try {
-    const location = await handleInvoke(
-      "export_character",
-      { characterId },
-      "export-character-failed"
-    );
+    const location = await handleInvoke("export_character", { characterId });
     logMessage("info", "export-character-success", { location });
   } finally {
     storePrivate.characterLoading = false;

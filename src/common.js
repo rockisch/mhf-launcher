@@ -1,5 +1,5 @@
-export const CLASSIC_STYLE = 0;
-export const MODERN_STYLE = 1;
+export const MODERN_STYLE = 0;
+export const CLASSIC_STYLE = 1;
 
 export const LOGIN_PAGE = 0;
 export const PATCHER_PAGE = 1;
@@ -20,6 +20,12 @@ export const DEFAULT_SERVERLIST_URL =
   "https://raw.githubusercontent.com/rockisch/mhf-launcher/master/serverlist.json";
 export const DEFAULT_MESSAGELIST_URL =
   "https://raw.githubusercontent.com/rockisch/mhf-launcher/master/messagelist.json";
+
+export const GAME_VERSIONS = [
+  // Disabled for now
+  "ZZ",
+  // "F5",
+];
 
 export async function requestHandler(cb, error, loading) {
   if (loading) loading.value = true;

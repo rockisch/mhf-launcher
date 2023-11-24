@@ -20,6 +20,7 @@ import {
   openPicker,
   PATCHER_PAGE,
   PATCHER_DIALOG,
+  GAME_VERSIONS,
 } from "../common";
 import {
   store,
@@ -60,6 +61,18 @@ const messages = computed(() => {
         break;
     }
   }
+  for (const message of store.remoteMessages) {
+    switch (message.kind) {
+      case 1:
+        announcements.push(message);
+        break;
+      default:
+        news.push(message);
+        break;
+    }
+  }
+  announcements.sort((a, b) => b.date - a.date);
+  news.sort((a, b) => b.date - a.date);
   return {
     announcements,
     news,
@@ -79,7 +92,9 @@ const messages = computed(() => {
             </div>
           </div>
         </div>
-        <div class="ml-3 h-full w-full grow flex flex-col items-center">
+        <div
+          class="ml-3 h-full w-full grow flex flex-col items-center overflow-hidden"
+        >
           <Characters v-if="storeMut.page === CHARACTERS_PAGE"></Characters>
           <Settings v-else-if="storeMut.page === SETTINGS_PAGE"></Settings>
           <template v-else>
@@ -309,7 +324,7 @@ const messages = computed(() => {
               $t("server-game-port-label")
             }}</label>
             <input
-              v-model="storeMut.editEndpoint.host"
+              v-model="storeMut.editEndpoint.url"
               type="text"
               spellcheck="false"
               class="box-text w-full col-span-3 text-white"
@@ -334,16 +349,27 @@ const messages = computed(() => {
               :class="{ disabled: storeMut.editEndpoint.isRemote }"
               :disabled="storeMut.editEndpoint.isRemote"
             />
-            <label class="text-md news-default col-span-7">{{
-              $t("server-game-folder-label")
-            }}</label>
+            <label class="text-md news-default col-span-5">
+              {{ $t("server-game-folder-label") }}
+            </label>
+            <label class="text-md news-default col-span-2">
+              {{ $t("server-game-version-label") }}
+            </label>
             <input
               v-model="storeMut.editEndpoint.gameFolder"
               type="text"
-              class="box-text col-span-7 text-white"
+              class="box-text col-span-5 text-white"
               spellcheck="false"
               :placeholder="effectiveFolder"
             />
+            <select
+              v-model="storeMut.editEndpoint.version"
+              class="box-text box-btn col-span-2"
+            >
+              <option v-for="version in GAME_VERSIONS" :value="version">
+                {{ version }}
+              </option>
+            </select>
           </div>
         </template>
         <div class="grow"></div>

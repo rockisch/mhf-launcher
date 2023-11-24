@@ -2063,6 +2063,7 @@ dependencies = [
 [[package]]
 name = "mhf-iel"
 version = "0.1.0"
+source = "git+https://github.com/rockisch/mhf-iel.git?rev=8c5a28f0824c862fc1f5f807415d94c71a6c2371#8c5a28f0824c862fc1f5f807415d94c71a6c2371"
 dependencies = [
  "num_enum 0.7.1",
  "serde",
