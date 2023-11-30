@@ -1,6 +1,6 @@
 <script setup>
 import { onSettingsButton } from "../store";
-import SettingsList from "../SettingsList.vue";
+import SettingsList from "../settings/SettingsList.vue";
 
 const emit = defineEmits(["back"]);
 </script>
@@ -10,12 +10,17 @@ const emit = defineEmits(["back"]);
     <div
       class="flex flex-col shadow shadow-black p-3 bg-black/50 flex gap-2 h-full"
     >
-      <div class="grow">
-        <div class="btn btn-sm btn-primary">
-          {{ $t("settings-general-title") }}
-        </div>
-      </div>
-      <div class="btn btn-sm btn-primary w-max" @click="onSettingsButton">
+      <a href="#general-settings" class="btn btn-sm px-6 btn-primary">
+        {{ $t("settings-general-title") }}
+      </a>
+      <a href="#game-settings" class="btn btn-sm px-6 btn-primary">
+        {{ $t("settings-game-title") }}
+      </a>
+      <a href="#advanced-settings" class="btn btn-sm px-6 btn-primary">
+        {{ $t("settings-advanced-title") }}
+      </a>
+      <div class="grow"></div>
+      <div class="btn btn-sm px-6 btn-primary w-max" @click="onSettingsButton">
         {{ $t("go-back-button") }}
       </div>
     </div>

@@ -18,6 +18,7 @@ import {
   dismissRecentLog,
   dialogRemoveEndpoint,
   dialogCallback,
+  effectiveBanners,
 } from "../store";
 import {
   LOGIN_PAGE,
@@ -68,7 +69,7 @@ const messages = computed(() =>
         />
         <div class="flex gap-2 justify-center">
           <button
-            v-for="(_, i) in store.banners"
+            v-for="(_, i) in effectiveBanners"
             class="w-[8px] h-[8px] rounded-lg hover:bg-[#888888] my-2"
             :class="i === bannerIndex ? 'bg-[#888888]' : 'bg-[#444444]'"
             @click="setBannerIndex(i)"

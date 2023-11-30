@@ -51,6 +51,18 @@ const storePrivate = reactive({
     current: 0,
     state: DONE_PATCHER,
   },
+
+  settings: {
+    hdVersion: false,
+    fullscreen: 1,
+    fullscreenW: 1920,
+    fullscreenH: 1080,
+    windowW: 1280,
+    windowH: 720,
+    sound: 0,
+    soundUnfocused: 0,
+    soundMinimized: 0,
+  },
 });
 export const store = readonly(storePrivate);
 
@@ -93,12 +105,12 @@ export function dismissRecentLog() {
 
 export const bannerIndex = ref(0);
 export const currentBanner = computed(
-  () => storePrivate.banners[bannerIndex.value]
+  () => effectiveBanners.value[bannerIndex.value]
 );
 function updateBanner() {
   let value = bannerIndex.value;
   value++;
-  if (value >= store.banners.length) {
+  if (value >= effectiveBanners.value.length) {
     value = 0;
   }
   bannerIndex.value = value;
@@ -120,7 +132,7 @@ export function onSettingsButton() {
   }
 }
 
-export function updateMessages(messages) {
+export function updateRemoteMessages(messages) {
   storePrivate.remoteMessages = messages;
 }
 
@@ -204,6 +216,32 @@ watch(
     await handleInvoke("set_messagelist_url", { messagelistUrl })
 );
 
+export const effectiveBanners = computed(() =>
+  store.banners.length
+    ? store.banners
+    : [
+        {
+          src: "http://zerulight.cc/launcher/en/images/bnr/1030_0.jpg",
+          link: "http://localhost",
+        },
+        {
+          src: "http://zerulight.cc/launcher/en/images/bnr/0801_3.jpg",
+          link: "http://localhost",
+        },
+        {
+          src: "http://zerulight.cc/launcher/en/images/bnr/0705_3.jpg",
+          link: "http://localhost",
+        },
+        {
+          src: "http://zerulight.cc/launcher/en/images/bnr/1211_11.jpg",
+          link: "http://localhost",
+        },
+        {
+          src: "http://zerulight.cc/launcher/en/images/bnr/reg_mezefes.jpg",
+          link: "http://localhost",
+        },
+      ]
+);
 export const effectiveFolder = computed(
   () => storeMut.gameFolder || storePrivate.currentFolder
 );
@@ -222,7 +260,9 @@ export async function initStore() {
   storePrivate.remoteEndpoints = data.remoteEndpoints;
   storePrivate.currentEndpoint = data.currentEndpoint;
   storePrivate.currentFolder = data.currentFolder;
+  storePrivate.remoteMessages = data.remoteMessages;
   storePrivate.lastCharId = data.lastCharId;
+  storePrivate.settings = data.settings;
 }
 
 export async function initRemoteEndpoints({ endpoints, remoteEndpoints }) {
@@ -340,7 +380,11 @@ export async function cancelPatcher() {
   storeMut.page = LOGIN_PAGE;
 }
 
-// Invoke setters
+export async function setSetting(setting, value) {
+  await handleInvoke("set_setting", { setting, value });
+  storePrivate.settings[setting] = value;
+}
+
 export async function setEndpoints(endpoints, remote) {
   endpoints = endpoints.map((endpoint) => ({
     ...endpoint,

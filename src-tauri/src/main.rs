@@ -10,6 +10,7 @@ mod config;
 mod endpoint;
 mod patcher;
 mod server;
+mod settings;
 mod store;
 mod user;
 
@@ -25,6 +26,7 @@ use mhf_iel::MhfConfig;
 use serde::Serialize;
 use serde_json::Value;
 use server::{AuthResponse, JsonRequest, LauncherResponse, MessageData, PatcherResponse};
+use settings::Settings;
 use store::StoreHelper;
 use tauri::{async_runtime::Mutex, PhysicalSize};
 use tauri::{Manager, Window};
@@ -55,6 +57,7 @@ struct TauriStateSync {
     remote_endpoints: Vec<Endpoint>,
     remote_endpoints_config: HashMap<String, EndpointConfig>,
     current_endpoint: Endpoint,
+    remote_messages: Vec<MessageData>,
     user_manager: UserManager,
     game_folder: Option<PathBuf>,
     last_char_id: Option<u32>,
@@ -162,6 +165,7 @@ struct InitialDataPayload {
     endpoints: Vec<Endpoint>,
     remote_endpoints: Vec<Endpoint>,
     current_endpoint: Endpoint,
+    remote_messages: Vec<MessageData>,
     username: String,
     password: String,
     remember_me: bool,
@@ -170,6 +174,7 @@ struct InitialDataPayload {
     last_char_id: Option<u32>,
     serverlist_url: String,
     messagelist_url: String,
+    settings: Settings,
 }
 
 #[tauri::command]
@@ -181,6 +186,7 @@ async fn initial_data(state: tauri::State<'_, TauriState>) -> Result<InitialData
         endpoints: state_sync.endpoints.clone(),
         remote_endpoints: state_sync.remote_endpoints.clone(),
         current_endpoint: state_sync.current_endpoint.clone(),
+        remote_messages: state_sync.remote_messages.clone(),
         username: userdata.username,
         password,
         remember_me: userdata.remember_me,
@@ -190,6 +196,7 @@ async fn initial_data(state: tauri::State<'_, TauriState>) -> Result<InitialData
         last_char_id: state_sync.last_char_id,
         serverlist_url: state_sync.serverlist_url.clone(),
         messagelist_url: state_sync.messagelist_url.clone(),
+        settings: settings::get_settings(&state_sync.effective_folder()),
     })
 }
 
@@ -212,6 +219,16 @@ async fn set_locale(state: tauri::State<'_, TauriState>, locale: String) -> Resu
     state_sync.locale = locale.clone();
     state_sync.store.with(|s| s.set("locale", locale));
     Ok(())
+}
+
+#[tauri::command]
+async fn set_setting(
+    state: tauri::State<'_, TauriState>,
+    setting: String,
+    value: serde_json::Value,
+) -> Result<(), String> {
+    let state_sync = state.state_sync.lock().await;
+    settings::set_setting(&state_sync.effective_folder(), &setting, value)
 }
 
 #[tauri::command]
@@ -399,13 +416,13 @@ async fn set_messagelist_url(
     state: tauri::State<'_, TauriState>,
     messagelist_url: String,
 ) -> Result<(), String> {
-    info!("messagelisturl: {}", messagelist_url);
     if !messagelist_url.is_empty() {
         let req = {
             let mut state_sync = state.state_sync.lock().await;
             if messagelist_url == state_sync.messagelist_url {
                 return Ok(());
             }
+            state_sync.messagelist_url = messagelist_url.clone();
             state_sync.cancel_messagelist.cancel();
             state_sync.cancel_messagelist = CancellationToken::new();
             server::simple_request(
@@ -414,7 +431,8 @@ async fn set_messagelist_url(
                 &messagelist_url,
             )
         };
-        handle_remote_messages(&window, req).await;
+        let state_sync_mutex = state.state_sync.clone();
+        handle_remote_messages(&window, req, state_sync_mutex).await;
     }
     let mut state_sync = state.state_sync.lock().await;
     state_sync
@@ -773,11 +791,17 @@ async fn handle_remote_endpoints(
         .unwrap_or_else(|e| warn!("failed to emit message: {}", e));
 }
 
-async fn handle_remote_messages(window: &Window, req: server::JsonRequest<Vec<MessageData>>) {
+async fn handle_remote_messages(
+    window: &Window,
+    req: server::JsonRequest<Vec<MessageData>>,
+    state_sync_mutex: Arc<Mutex<TauriStateSync>>,
+) {
     match req.send().await {
         Ok(messages) => {
-            info!("got: {:?}", messages);
-            window.emit("messages", messages)
+            let r = window.emit("remote_messages", messages.clone());
+            let mut state_sync = state_sync_mutex.lock().await;
+            state_sync.remote_messages = messages;
+            r
         }
         Err(e) => {
             warn!("failed to fetch global messages: {}", e);
@@ -869,9 +893,10 @@ fn main() {
                             state_sync.cancel_messagelist.clone(),
                             &state_sync.messagelist_url,
                         );
+                        let state_sync_mutex = state.state_sync.clone();
                         let window = window.clone();
                         tauri::async_runtime::spawn(async move {
-                            handle_remote_messages(&window, messages_req).await
+                            handle_remote_messages(&window, messages_req, state_sync_mutex).await
                         });
                     }
                     Ok(())
@@ -880,6 +905,7 @@ fn main() {
                     initial_data,
                     set_style,
                     set_locale,
+                    set_setting,
                     set_endpoints,
                     set_remote_endpoints,
                     set_current_endpoint,
@@ -932,6 +958,7 @@ fn main() {
                     char_hr: char.hr,
                     char_ids,
                     char_new,
+                    user_token_id: auth_resp.user.token_id,
                     user_token: auth_resp.user.token.clone(),
                     user_name: userdata.username,
                     user_password: password,
@@ -978,7 +1005,10 @@ fn main() {
         if run {
             match mhf_iel::run(config).unwrap() {
                 102 => {}
-                code => info!("exited with code {}", code),
+                code => {
+                    info!("exited with code {}", code);
+                    break;
+                }
             };
         } else {
             break;

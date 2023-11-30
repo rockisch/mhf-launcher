@@ -132,6 +132,10 @@
   background-color: #535353;
 }
 
+input[type="radio"] {
+  accent-color: #A6D8FF;
+}
+
 option,
 optgroup {
   background-color: #222;

@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{marker::PhantomData, path::PathBuf};
+use std::marker::PhantomData;
 
 use log::warn;
 use reqwest::{RequestBuilder, Response};
@@ -24,13 +24,6 @@ impl Error {
         match self {
             Self::Cancellation => "".into(),
             Self::Server(_, msg) | Self::Backend(msg) => msg,
-        }
-    }
-
-    pub fn into_frontend_context(self, context: &str) -> String {
-        match self {
-            Self::Cancellation => "".into(),
-            Self::Server(_, msg) | Self::Backend(msg) => format!("{}: {}", context, msg),
         }
     }
 }
@@ -87,6 +80,7 @@ pub struct LauncherResponse {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct UserData {
+    pub token_id: u32,
     pub token: String,
     pub rights: u32,
 }

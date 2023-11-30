@@ -6,7 +6,13 @@ import {
   doExportCharacter,
   dialogDeleteCharacter,
 } from "../store";
-import { LOGIN_PAGE, closeDropdown, formatDate } from "../common";
+import {
+  LOGIN_PAGE,
+  closeDropdown,
+  formatDate,
+  getCid,
+  copyCid,
+} from "../common";
 import { storeMut } from "../store";
 
 function characterWeaponIcon(weapon) {
@@ -30,11 +36,11 @@ function characterWeaponIcon(weapon) {
         </div>
       </div>
       <div
-        class="grid grid-cols-[1fr_auto] gap-2 overflow-auto scrollbar mr-[-4px] pr-[4px]"
+        class="grid grid-cols-[1fr_auto] gap-2 overflow-auto scrollbar mr-[-4px] pr-[4px] pb-12"
       >
         <template v-for="character in store.characters">
           <button
-            class="btn btn-primary h-[110px] grid grid-cols-9 grow gap-1 gap-x-4 px-3 py-3 items-end justify-items-start"
+            class="btn btn-primary h-[113px] grid grid-cols-9 grow gap-1 gap-x-4 px-3 py-3 items-end justify-items-start"
             :disabled="store.characterLoading"
             @click="doSelectCharacter(character.id)"
           >
@@ -51,9 +57,12 @@ function characterWeaponIcon(weapon) {
               <span v-if="character.isFemale">
                 {{ $t("character-gender-female") }}
               </span>
-              <span v-else>{{ $t("character-gender-male") }}</span>
+              <span v-else>
+                {{ $t("character-gender-male") }}
+              </span>
             </div>
-            <span class="col-span-6 flex gap-3 justify-end">
+            <span class="col-span-3"> ID: {{ getCid(character.id) }} </span>
+            <span class="col-span-3 flex gap-3 justify-end">
               <span>HR{{ character.hr }}</span>
               <span>GR{{ character.gr }}</span>
             </span>
@@ -75,6 +84,11 @@ function characterWeaponIcon(weapon) {
               </li>
               <li @click="closeDropdown(() => doExportCharacter(character.id))">
                 <a>{{ $t("export-character-label") }}</a>
+              </li>
+              <li @click="closeDropdown(() => copyCid(character.id))">
+                <a>
+                  {{ $t("copy-cid-label") }}
+                </a>
               </li>
             </ul>
           </div>

@@ -38,6 +38,7 @@ import {
   onSettingsButton,
   dialogCallback,
   patcherLog,
+  effectiveBanners,
 } from "../store";
 import Patcher from "./Patcher.vue";
 
@@ -82,7 +83,8 @@ const messages = computed(() => {
 
 <template>
   <div class="h-full w-full flex flex-col" :class="storeMut.locale">
-    <div class="grow w-full h-0 flex text-white gap-8">
+    <Settings v-if="storeMut.page === SETTINGS_PAGE"></Settings>
+    <div v-else class="grow w-full h-0 flex text-white gap-8">
       <div class="flex flex-col items-center mb-2 mt-5">
         <div class="self-start">
           <img draggable="false" src="/classic/launcher-header.png" />
@@ -91,12 +93,20 @@ const messages = computed(() => {
               release ver. 2.000
             </div>
           </div>
+          <div
+            v-if="storeMut.page === CHARACTERS_PAGE"
+            class="relative h-0 text-right bottom-4 right-0 text-sm"
+          >
+            {{ storeMut.username }}@{{ store.currentEndpoint.name }}
+            <span class="cursor-pointer" @click="storeMut.page = LOGIN_PAGE"
+              >X</span
+            >
+          </div>
         </div>
         <div
           class="ml-3 h-full w-full grow flex flex-col items-center overflow-hidden"
         >
           <Characters v-if="storeMut.page === CHARACTERS_PAGE"></Characters>
-          <Settings v-else-if="storeMut.page === SETTINGS_PAGE"></Settings>
           <template v-else>
             <Login v-if="storeMut.page === LOGIN_PAGE"></Login>
             <Patcher v-else-if="storeMut.page === PATCHER_PAGE"></Patcher>
@@ -137,7 +147,7 @@ const messages = computed(() => {
           />
           <div class="flex flex-col justify-center gap-3">
             <button
-              v-for="(_, i) in store.banners"
+              v-for="(_, i) in effectiveBanners"
               class="w-[10px] h-[10px] rounded-lg hover:bg-[#888888]"
               :class="i === bannerIndex ? 'bg-[#888888]' : 'bg-[#444444]'"
               @click="setBannerIndex(i)"
@@ -178,7 +188,7 @@ const messages = computed(() => {
       </div>
     </div>
     <div
-      class="bg-[#00000080] h-[39px] col-span-2 flex gap-3 px-[30px] items-center overflow-clip"
+      class="bg-[#00000080] h-[39px] col-span-2 flex gap-3 px-[30px] items-center overflow-clip flex-shrink-0"
     >
       <img src="/classic/capcom.png" class="object-contain" draggable="false" />
       <img src="/classic/cog.png" class="object-contain" draggable="false" />

@@ -8,7 +8,7 @@ import {
   storeMut,
   initStore,
   initRemoteEndpoints,
-  updateMessages,
+  updateRemoteMessages,
   updatePatcher,
   logText,
 } from "./store";
@@ -28,8 +28,8 @@ listen("userdata", ({ payload }) => {
 listen("endpoints", ({ payload }) => {
   initRemoteEndpoints(payload);
 });
-listen("messages", ({ payload }) => {
-  updateMessages(payload);
+listen("remote_messages", ({ payload }) => {
+  updateRemoteMessages(payload);
 });
 listen("patcher", ({ payload }) => {
   updatePatcher(payload);

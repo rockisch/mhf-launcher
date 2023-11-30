@@ -42,10 +42,6 @@ impl<'a> StoreTransaction<'a> {
             warn!("unable to insert value into store: {}", e);
         }
     }
-
-    pub fn del(&mut self, key: &'static str) {
-        _ = self.store.delete(key);
-    }
 }
 
 pub fn get<T: DeserializeOwned>(store: &Store<Wry>, key: &str, target: &mut T) {

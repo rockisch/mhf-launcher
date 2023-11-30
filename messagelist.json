@@ -1,1 +1,32 @@
-[]
+[
+  {
+    "message": "Server Update 9.2 - Quest fixes, Gacha support and tons of bug fixes!",
+    "date": 1680318000,
+    "link": "https://discord.com/channels/368424389416583169/929509970624532511/1091620657508401162",
+    "kind": 1
+  },
+  {
+    "message": "English Patch 4.1 - Fix \"Unknown\" weapons, NPC changes & Diva Support.",
+    "date": 1677466800,
+    "link": "https://discord.com/channels/368424389416583169/929509970624532511/1079728825996427284",
+    "kind": 1
+  },
+  {
+    "message": "Server Update 9.1! Hunter Festival, Return worlds and NetCafe are back!",
+    "date": 1667530800,
+    "link": "https://discord.com/channels/368424389416583169/929509970624532511/1038013064643092511",
+    "kind": 0
+  },
+  {
+    "message": "Deerby & Supream have been updating Ferias! You can find any and all MHF info/data there!",
+    "date": 1657162800,
+    "link": "https://xl3lackout.github.io/MHFZ-Ferias-English-Project/",
+    "kind": 0
+  },
+  {
+    "message": "Server hosts, get Chakratos' Save Manager! Use it to enhance your Erupe server!",
+    "date": 1657162800,
+    "link": "https://github.com/Chakratos/mhf-save-manager/releases/latest",
+    "kind": 0
+  }
+]

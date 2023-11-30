@@ -3,7 +3,7 @@ import { ref, watch } from "vue";
 import { computed } from "@vue/reactivity";
 
 import Character from "./Character.vue";
-import { LOGIN_PAGE, openPicker } from "../common";
+import { LOGIN_PAGE, copyCid, openPicker } from "../common";
 import {
   store,
   storeMut,
@@ -72,10 +72,6 @@ function openCharacterSettingsPicker() {
 
 <template>
   <div class="h-full w-full" ref="rootRef">
-    <div class="relative h-0 text-right bottom-4 right-2 text-sm">
-      {{ storeMut.username }}@{{ store.currentEndpoint.name }}
-      <span class="cursor-pointer" @click="storeMut.page = LOGIN_PAGE">X</span>
-    </div>
     <div class="flex flex-col items-center mt-4 mr-[-12px]">
       <div class="h-[39px] w-[132px] z-[10]">
         <img
@@ -183,6 +179,12 @@ function openCharacterSettingsPicker() {
               @click="doExportCharacter(character.id)"
             >
               {{ $t("export-character-label") }}
+            </button>
+            <button
+              class="w-full px-2 py-0.5 hover:bg-[#304368b8]"
+              @click="copyCid(character.id)"
+            >
+              {{ $t("copy-cid-label") }}
             </button>
           </div>
         </div>

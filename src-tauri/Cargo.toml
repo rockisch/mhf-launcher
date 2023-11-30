@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.0"
+version = "1.1.0"
 description = "MHF Launcher"
 authors = ["you"]
 license = ""
@@ -28,7 +28,12 @@ tauri = { version = "1.5", features = ["api-all"] }
 tauri-plugin-store = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
 tauri-plugin-log = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
 
-mhf-iel = { git = "https://github.com/rockisch/mhf-iel.git", rev = "8c5a28f0824c862fc1f5f807415d94c71a6c2371" }
+mhf-iel = { git = "https://github.com/rockisch/mhf-iel.git", rev = "dc7a4a982a5d3263bb2859a46ebb7ba9ab198f69" }
+# mhf-iel = { path = "../../mhf-iel" }
+
+[dependencies.windows]
+version = "0.52"
+features = ["Win32_System_WindowsProgramming"]
 
 [features]
 # by default Tauri runs in production mode

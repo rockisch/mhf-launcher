@@ -36,15 +36,22 @@ news-label = News
 # Settings
 settings-button = Settings
 settings-general-title = General
+settings-game-title = Game
+settings-advanced-title = Advanced
 go-back-button = Go Back
 style-label = Style
 classic-style = Classic Style
 modern-style = Modern Style
 game-folder-label = Game Folder
 current-folder-label = Current Folder
+hd-version-label = HD Version
+fullscreen-label = Fullscreen
+window-resolution-label = Window Resolution
+fullscreen-resolution-label = Fullscreen Resolution
 list-remote-servers-label = List Remote Servers
 list-remote-messages-label = List Global Messages
 serverlist-url-label = Serverlist URL
+settings-error = Failed to write settings to 'mhf.ini'
 
 # Characters page
 create-character-label = Create New Character
@@ -56,6 +63,7 @@ delete-character-error = Error deleting character: { $error }
 export-character-label = Export Character Save
 export-character-success = Exported save to "{ $location }"
 export-character-failed = Error exporting save data: { $error }
+copy-cid-label = Copy Character ID
 character-gender-label = Gender
 character-gender-female = Female
 character-gender-male = Male
@@ -88,7 +96,7 @@ gunlance-label = Gunlance
 bow-label = Bow
 tonfa-label = Tonfa
 switch-axe-label = Switch Axe
-magnetic-spike-label = Magnetic Spike
+magnet-spike-label = Magnet Spike
 
 # Launcher
 endpoint-name-empty = Server name must not be empty

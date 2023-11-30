@@ -75,4 +75,4 @@ gunlance-label = ガンランス
 bow-label = 弓
 tonfa-label = 穿龍棍
 switch-axe-label = スラッシュアックス
-magnetic-spike-label = マグネットスパイク
+magnet-spike-label = マグネットスパイク

@@ -1,7 +1,7 @@
 <script setup>
 import { useFluent } from "fluent-vue";
 
-import { formatDate } from "../common";
+import { formatDate, getCid } from "../common";
 import { doSelectCharacter } from "../store";
 
 const { $t } = useFluent();
@@ -35,7 +35,7 @@ function getWeaponLabel(weapon) {
     case 12:
       return $t("switch-axe-label");
     case 13:
-      return $t("magnetic-spike-label");
+      return $t("magnet-spike-label");
   }
 }
 
@@ -77,13 +77,13 @@ const props = defineProps({
         <div class="flex-1 flex flex-col text-lg leading-[1] mt-1">
           <div class="flex gap-4">
             <span>HR{{ character.hr }}</span>
-            <span>GR{{ character.hr }}</span>
+            <span v-if="character.gr">GR{{ character.gr }}</span>
             <span class="font-mono">
               <span v-if="character.isFemale">♀</span>
               <span v-else>♂</span>
             </span>
           </div>
-          <div>ID:{{ character.id }}</div>
+          <div>ID:{{ getCid(character.id) }}</div>
           <div>
             {{
               `${$t("last-online-label")}:${formatDate(character.lastLogin)}`
