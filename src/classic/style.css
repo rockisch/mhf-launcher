@@ -2,6 +2,10 @@
     font-family: "Zen Antique";
     src: url('/fonts/ZenAntique-Regular.ttf') format("truetype");
 }
+@font-face {
+    font-family: "Ocean Blue";
+    src: url('/fonts/Oceanblue-7B0m4.ttf') format("truetype");
+}
 
 .state-img {
     cursor: pointer;
@@ -29,7 +33,7 @@
 }
 
 .font-old {
-    font-family: 'Zen Antique', serif;
+    font-family: 'Ocean Blue', serif;
     text-shadow: 2px 2px 5px black;
 }
 
