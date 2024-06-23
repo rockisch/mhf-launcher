@@ -2,9 +2,7 @@
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
 )]
-#![feature(result_option_inspect)]
 #![feature(iterator_try_collect)]
-#![feature(absolute_path)]
 
 mod config;
 mod endpoint;
